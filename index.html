@@ -660,7 +660,15 @@ function workLevel(k, s){
   return Math.max(cur, Math.min(w, cap));
 }
 const isRest = s => S.train.rest.includes(pd(s).getDay());
-function firstTrainingDay(){ let s = S.train.start; for (let i=0;i<7;i++){ if (!isRest(s)) return s; s = addD(s,1); } return S.train.start; }
+function firstTrainingDay(from){ let s = from || S.train.start; for (let i=0;i<7;i++){ if (!isRest(s)) return s; s = addD(s,1); } return from || S.train.start; }
+// Jour de l'évaluation de départ : le jour du premier test saisi ; tant qu'aucun test n'est saisi,
+// elle « glisse » au prochain jour d'entraînement (aujourd'hui ou après) pour ne jamais être ratée.
+function initialTestDay(){
+  const T = S.train, first = testsSorted()[0];
+  if (first) return first.date < T.start ? T.start : first.date;
+  const t = todayStr();
+  return firstTrainingDay(t > T.start ? t : T.start);
+}
 function weekInfo(s){
   const T = S.train, m0 = mondayOf(T.start);
   return { w: Math.floor(dd(m0, s)/7), W: Math.floor(dd(m0, T.exam)/7), m0 };
@@ -673,9 +681,9 @@ function isDeload(w){
 }
 let _specialCache = null;
 function specialDays(){
-  const T = S.train, key = T.start + T.exam + T.rest.join();
+  const T = S.train, key = T.start + T.exam + T.rest.join() + '|' + initialTestDay();
   if (_specialCache && _specialCache.key === key) return _specialCache;
-  const out = { key, test:{}, sim:null, first:firstTrainingDay() };
+  const out = { key, test:{}, sim:null, first:initialTestDay() };
   out.test[out.first] = 'initial';
   const { W, m0 } = weekInfo(T.start);
   for (let w=1; w<=W; w++){
@@ -717,6 +725,8 @@ const killyRule = "Killy : dos plaqué au mur, cuisses parallèles au sol, genou
 function buildSession(s){
   const T = S.train;
   if (s < T.start) return { kind:'none', title:'Avant le début du plan', ico:'📅', cls:'rest', blocks:[] };
+  const firstDay = specialDays().first;
+  if (s < firstDay) return { kind:'none', title:'Avant ton évaluation de départ', ico:'📅', cls:'rest', blocks:[{h:'Rien à rattraper', cls:'soft', items:["Le plan démarre le jour où tu fais ton évaluation de départ."]}] };
   const dte = dd(s, T.exam);
   if (dte < 0) return { kind:'none', title:'Après le jour J', ico:'🏁', cls:'rest', blocks:[{h:'Et maintenant ?', items:["Repos complet 2–3 jours, puis reprends 3 séances par semaine pour garder le niveau jusqu'à l'agrément technique."]}] };
   const L = { ll:workLevel('ll', s), tr:workLevel('tr', s), ki:workLevel('ki', s) };

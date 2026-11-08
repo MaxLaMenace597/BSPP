@@ -337,6 +337,8 @@ a{color:var(--accent)}
 .field label{display:block;font-size:13px;font-weight:700;color:var(--dim);margin-bottom:6px}
 .f2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .f3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.f2 > *,.f3 > *{min-width:0}
+input[type=date],input[type=time]{min-width:0;-webkit-appearance:none;appearance:none}
 .feel{display:flex;gap:6px}
 .feel button{flex:1;height:50px;border-radius:14px;background:var(--s2);border:2px solid var(--border);font-size:22px}
 .feel button.on{border-color:var(--accent);background:var(--accent-soft)}
@@ -456,7 +458,7 @@ function freshState(){
     prefs:{theme:'auto'},
     dossier:{ items: DOSSIER_DEFAULT.map(x => ({...x, done:false, at:null, note:''})), steps: STEPS_DEFAULT.map(x => ({...x, done:false, at:null})) },
     // Épreuves annoncées « dans 4 mois » le 7 novembre 2026 → 7 mars 2027 (modifiable dans Outils › Réglages du plan)
-    train:{ start:t, exam: EXAM_DEFAULT > addD(t, 30) ? EXAM_DEFAULT : addMonths(t,4), rest:[2,4], goals:{ll:12, tr:30, ki:200}, tests:[], log:{} },
+    train:{ start:t, exam: EXAM_DEFAULT > addD(t, 30) ? EXAM_DEFAULT : addMonths(t,4), week:{...WEEK_FOOT}, goals:{ll:12, tr:30, ki:200}, tests:[], log:{} },
     quiz:{ days:{}, st:{}, read:{}, exams:[], oral:{}, oralN:0 },
     badges:{},
     ui:{ tab:'dossier', tsub:'today', qsub:'quiz' }
@@ -464,6 +466,10 @@ function freshState(){
 }
 const LS = 'objectif-bspp-v1';
 const EXAM_DEFAULT = '2027-03-07';
+// Semaine type : un type de séance par jour (0 = dimanche … 6 = samedi)
+const DAY_TYPES = { vma:'⚡ Course VMA courte', endu:'🏃 Course VMA longue', footing:'🌿 Footing endurance', force:'💪 Tractions + chaise', volume:'🦵 Volume tractions + jambes', combo:'🔥 Course + tractions', foot:'⚽ Foot / sport collectif', rest:'🛌 Repos' };
+const WEEK_FOOT = {1:'vma', 2:'foot', 3:'force', 4:'foot', 5:'rest', 6:'combo', 0:'rest'};
+const WEEK_STD  = {1:'vma', 2:'rest', 3:'force', 4:'rest', 5:'endu', 6:'volume', 0:'footing'};
 let S;
 function load(){
   try{
@@ -682,8 +688,10 @@ function workLevel(k, s){
   const cap = Math.max(e, k === 'll' ? cur + 0.75 : cur * 1.2);
   return Math.max(cur, Math.min(w, cap));
 }
-const isRest = s => S.train.rest.includes(pd(s).getDay());
-function firstTrainingDay(from){ let s = from || S.train.start; for (let i=0;i<7;i++){ if (!isRest(s)) return s; s = addD(s,1); } return from || S.train.start; }
+const dayType = s => ((S.train.week || WEEK_FOOT)[pd(s).getDay()]) || 'rest';
+const isRest = s => dayType(s) === 'rest';
+const isTestable = s => !['rest','foot'].includes(dayType(s)); // pas de test un jour de repos ou de foot
+function firstTrainingDay(from){ let s = from || S.train.start; for (let i=0;i<7;i++){ if (isTestable(s)) return s; s = addD(s,1); } return from || S.train.start; }
 // Jour de l'évaluation de départ : le jour du premier test saisi ; tant qu'aucun test n'est saisi,
 // elle « glisse » au prochain jour d'entraînement (aujourd'hui ou après) pour ne jamais être ratée.
 function initialTestDay(){
@@ -704,7 +712,7 @@ function isDeload(w){
 }
 let _specialCache = null;
 function specialDays(){
-  const T = S.train, key = T.start + T.exam + T.rest.join() + '|' + initialTestDay();
+  const T = S.train, key = T.start + T.exam + JSON.stringify(T.week || {}) + '|' + initialTestDay();
   if (_specialCache && _specialCache.key === key) return _specialCache;
   const out = { key, test:{}, sim:null, first:initialTestDay() };
   out.test[out.first] = 'initial';
@@ -712,13 +720,13 @@ function specialDays(){
   for (let w=1; w<=W; w++){
     if (!isDeload(w)) continue;
     let d = addD(m0, w*7+6); // dimanche
-    while (isRest(d)) d = addD(d,-1);
+    { let g = 0; while (!isTestable(d) && g++ < 7) d = addD(d,-1); }
     if (d > out.first) out.test[d] = 'test';
   }
   // Simulation complète ≈ 14 jours avant le jour J (de préférence le week-end)
   let bestD = null, bestScore = 1e9;
   for (let k=10; k<=17; k++){
-    const d = addD(T.exam, -k); if (d <= out.first || isRest(d)) continue;
+    const d = addD(T.exam, -k); if (d <= out.first || !isTestable(d)) continue;
     const dow = pd(d).getDay(); const sc = Math.abs(k-14) - ((dow === 0 || dow === 6) ? 1.5 : 0);
     if (sc < bestScore){ bestScore = sc; bestD = d; }
   }
@@ -745,6 +753,16 @@ const COOL = ["5–10 min de trot ou de marche", "Étirements doux 5 min : molle
 const tractionRule = "Tractions strictes en pronation (paumes vers l'avant) : départ bras tendus, menton au-dessus de la barre, sans balancer les jambes.";
 const killyRule = "Killy : dos plaqué au mur, cuisses parallèles au sol, genoux à 90°, pieds à plat. Ne bouge plus jusqu'à la fin.";
 
+function footSession(dte){
+  const light = dte <= 6;
+  return { title:'Foot', ico:'⚽', cls:'run', dur:'ton entraînement', blocks:[
+    { h:'Ce que ça t\'apporte', cls:'soft', items:["Sprints, changements de direction, efforts répétés : c'est exactement ce qu'il faut pour le Luc Léger. Ton foot compte comme une vraie séance du plan."] },
+    { h:'Aujourd\'hui', cls:'main', items: light
+      ? ["Les épreuves approchent : joue tranquille, évite les contacts et les gros duels", "Si tu peux, saute ce dernier entraînement pour arriver frais"]
+      : ["Échauffe-toi sérieusement 10 min avant : c'est au foot que les chevilles et les ischios lâchent", "Donne-toi à fond sur les sprints et les replis, chaque effort compte", "Pas de tractions ni de Killy en plus aujourd'hui : le repos du haut du corps fait partie du plan"] },
+    { h:'Après', cls:'soft', items:["5 min d'étirements doux et bois bien", "Un repas avec des glucides et des protéines dans les 2 h"] }
+  ]};
+}
 function buildSession(s){
   const T = S.train;
   if (s < T.start) return { kind:'none', title:'Avant le début du plan', ico:'📅', cls:'rest', blocks:[] };
@@ -795,11 +813,14 @@ function buildSession(s){
     ]};
   }
 
+  const gtg = n => `Après la course : ${n} séries de ${rep(0.4)} tractions faciles (récup 2 min). On « graisse le geste », jamais à l'échec.`;
+  const type = dayType(s);
+  if (type === 'foot') return { ...base, kind:'train', ...footSession(dte) };
+  const make = type => {
   const blocks = [];
   let title = '', ico = '🏃', cls = 'run', dur = '';
-  const gtg = n => `Après la course : ${n} séries de ${rep(0.4)} tractions faciles (récup 2 min). On « graisse le geste », jamais à l'échec.`;
 
-  if (dow === 1){ // Lundi — VMA courte
+  if (type === 'vma'){ // VMA courte
     title = 'Course — VMA courte'; ico = '⚡'; dur = '≈ 50 min';
     blocks.push({h:'Échauffement', items:WARM_RUN});
     const main = [];
@@ -821,7 +842,7 @@ function buildSession(s){
     blocks.push({h:'Complément', items:extra});
     blocks.push({h:'Retour au calme', cls:'soft', items:COOL});
   }
-  else if (dow === 3){ // Mercredi — force tractions + Killy
+  else if (type === 'force'){ // force tractions + Killy
     title = 'Tractions force + chaise'; ico = '💪'; cls = 'str'; dur = '≈ 45 min';
     blocks.push({h:'Échauffement', items:WARM_UP});
     const main = [];
@@ -842,7 +863,7 @@ function buildSession(s){
     blocks.push({h:'Renfo', items:[`Pompes : ${dl(3)} × ${phase==='fondation'?12:15}`, `Gainage planche : 3 × ${phase==='fondation'?40:60} s`, `Suspension à la barre (grip) : 2 × ${phase==='fondation'?30:45} s`]});
     blocks.push({h:'Retour au calme', cls:'soft', items:["Étirements dorsaux et pectoraux 5 min", "Quadriceps et fessiers 3 min"]});
   }
-  else if (dow === 5){ // Vendredi — endurance / VMA longue
+  else if (type === 'endu'){ // endurance / VMA longue
     title = 'Course — VMA longue'; ico = '🏃'; dur = '≈ 50 min';
     blocks.push({h:'Échauffement', items:WARM_RUN});
     const main = [];
@@ -862,7 +883,7 @@ function buildSession(s){
     blocks.push({h:'Complément', items:[gtg(2), `Gainage : planche 3 × ${phase==='fondation'?40:60} s + planche latérale 2 × 30 s par côté`]});
     blocks.push({h:'Retour au calme', cls:'soft', items:COOL});
   }
-  else if (dow === 6){ // Samedi — volume tractions + jambes
+  else if (type === 'volume'){ // volume tractions + jambes
     title = 'Volume tractions + jambes'; ico = '🦵'; cls = 'str'; dur = '≈ 55 min';
     blocks.push({h:'Échauffement', items:WARM_UP});
     const main = [];
@@ -885,7 +906,7 @@ function buildSession(s){
     if (phase !== 'affutage') blocks.push({h:'Jambes', items: phase === 'fondation' ? [`Squats : ${dl(4)} × 15`, `Fentes : 3 × 10 par jambe`, `Mollets : 3 × 20`] : [`Squats sautés : ${dl(3)} × 10`, `Squats lents (3 s en descente) : 3 × 12`, `Fentes : 3 × 12 par jambe`, `Mollets : 3 × 20`]});
     blocks.push({h:'Retour au calme', cls:'soft', items:["Étirements quadriceps, fessiers, dos, épaules 8 min"]});
   }
-  else { // Dimanche (ou autre) — footing
+  else { // footing
     title = 'Footing endurance'; ico = '🌿'; dur = '';
     const min = phase === 'affutage' ? 25 : dl(30 + Math.min(20, 2*w));
     dur = `≈ ${min + 10} min`;
@@ -893,8 +914,23 @@ function buildSession(s){
     blocks.push({h:'Mobilité', items:["10 min : hanches, chevilles, épaules, dos", "Suspension passive à la barre 2 × 30 s (décompresse le dos, renforce la prise)"]});
   }
 
-  if (deload) blocks.unshift({h:'Semaine allégée', cls:'soft', items:["Volume réduit d'environ 30 % cette semaine : c'est voulu, ton corps assimile le travail des 3 dernières semaines. Dimanche : test de contrôle."]});
-  return { ...base, kind:'train', title, ico, cls, dur, blocks };
+  return { title, ico, cls, dur, blocks };
+  };
+  let out;
+  if (type === 'combo'){ // course, puis tractions en volume, puis Killy sur jambes fatiguées
+    const a = make('endu'), b = make('volume');
+    const pick = (o, h) => o.blocks.find(x => x.h === h);
+    out = { title:'Course + tractions + Killy', ico:'🔥', cls:'run', dur:'≈ 75 min', blocks:[
+      pick(a, 'Échauffement'),
+      { ...pick(a, 'Corps de séance'), h:'1. Course' },
+      { ...pick(b, 'Tractions'), h:'2. Tractions (5 min après la course)' },
+      { ...pick(b, 'Killy (chaise)'), h:'3. Killy, jambes déjà fatiguées comme le jour J' },
+      { h:'Gainage', items:[`Planche : 3 × ${phase==='fondation'?40:60} s`, `Planche latérale : 2 × 30 s par côté`] },
+      { h:'Retour au calme', cls:'soft', items:COOL }
+    ].filter(Boolean) };
+  } else out = make(type);
+  if (deload) out.blocks.unshift({h:'Semaine allégée', cls:'soft', items:["Volume réduit d'environ 30 % cette semaine : c'est voulu, ton corps assimile le travail des 3 dernières semaines. Test de contrôle en fin de semaine."]});
+  return { ...base, kind:'train', ...out };
 }
 
 function sessionStatus(s){
@@ -1118,8 +1154,13 @@ function trainTools(){
   <div class="sec-title"><h3>Réglages du plan</h3></div>
   <div class="card">
     <div class="f2"><div class="field"><label>Début du plan</label><input type="date" id="pl-start" value="${T.start}"></div><div class="field"><label>Date des épreuves</label><input type="date" id="pl-exam" value="${T.exam}"></div></div>
-    <div class="f3"><div class="field"><label>Objectif LL (palier)</label><input type="number" step="0.5" min="4" max="16" id="pl-ll" value="${T.goals.ll}"></div><div class="field"><label>Tractions</label><input type="number" min="1" max="60" id="pl-tr" value="${T.goals.tr}"></div><div class="field"><label>Killy (s)</label><input type="number" min="30" max="600" step="5" id="pl-ki" value="${T.goals.ki}"></div></div>
-    <p class="faint small" style="margin:0 0 10px">Killy : 200 s = 3 min 20. Jours de repos : mardi et jeudi.</p>
+    <div class="f3"><div class="field"><label>LL (palier)</label><input type="number" step="0.5" min="4" max="16" id="pl-ll" value="${T.goals.ll}"></div><div class="field"><label>Tractions</label><input type="number" min="1" max="60" id="pl-tr" value="${T.goals.tr}"></div><div class="field"><label>Killy (s)</label><input type="number" min="30" max="600" step="5" id="pl-ki" value="${T.goals.ki}"></div></div>
+    <p class="faint small" style="margin:0 0 10px">Killy : 200 s = 3 min 20.</p>
+    <div class="field"><label>Ma semaine type</label>
+      <div class="btns" style="margin-bottom:8px"><button class="btn sm" data-act="wk-preset" data-v="foot">Avec foot mar. et jeu.</button><button class="btn sm" data-act="wk-preset" data-v="std">Sans foot</button></div>
+      ${[1,2,3,4,5,6,0].map(d => `<div class="row" style="margin:6px 0"><span style="width:86px;font-weight:600;text-transform:capitalize">${DOWL[d]}</span><select class="grow" id="pl-w${d}">${Object.entries(DAY_TYPES).map(([k,n]) => `<option value="${k}" ${(T.week||WEEK_FOOT)[d]===k?'selected':''}>${n}</option>`).join('')}</select></div>`).join('')}
+      <p class="faint small" style="margin:6px 0 0">Garde au moins un jour de repos. Les tests de contrôle tombent en fin de semaine, jamais un jour de foot ou de repos.</p>
+    </div>
     <button class="btn primary block" data-act="save-plan">Enregistrer</button>
   </div>
   <div class="note"><b>Repères barème armée de Terre (hommes) :</b> palier 12 au Luc Léger = 20/20, et 2 min 48 au Killy = 20/20. Tes objectifs (palier 12, 30 tractions, 3 min 20) visent donc le haut du barème : c'est ce qu'il faut pour sortir du lot à la BSPP.</div>`;
@@ -1396,11 +1437,15 @@ function trainClick(e){
   else if (a === 'count') countTool();
   else if (a === 'timer') timerTool();
   else if (a === 'agenda') agendaSheet();
+  else if (a === 'wk-preset'){ const P = b.dataset.v === 'std' ? WEEK_STD : WEEK_FOOT; for (const d of [0,1,2,3,4,5,6]) $('pl-w'+d).value = P[d]; toast('Appuie sur Enregistrer pour appliquer'); }
   else if (a === 'save-plan'){
     const st = $('pl-start').value, ex = $('pl-exam').value;
     if (!st || !ex || ex <= st){ toast('La date des épreuves doit être après le début'); return; }
     const T = S.train; T.start = st; T.exam = ex;
     T.goals.ll = clamp(parseFloat($('pl-ll').value) || 12, 3, 20); T.goals.tr = clamp(parseInt($('pl-tr').value,10) || 30, 1, 80); T.goals.ki = clamp(parseInt($('pl-ki').value,10) || 200, 20, 900);
+    const wk = {}; for (const d of [0,1,2,3,4,5,6]) wk[d] = $('pl-w'+d).value;
+    if (!Object.values(wk).includes('rest')){ toast('Garde au moins un jour de repos'); return; }
+    T.week = wk;
     _specialCache = null; planWeekOffset = null; save(); render(); toast('Plan recalculé');
   }
 }
@@ -2059,6 +2104,7 @@ function agendaSheet(){
           const x = buildSession(s);
           if (!['train','test','exam'].includes(x.kind)) continue;
           if (sessionStatus(s).st === 'ok') continue; // déjà faite
+          if (dayType(s) === 'foot') continue; // le foot est déjà dans ton agenda
           const d = s.replace(/-/g,'');
           const start = `${d}T${pad(hh)}${pad(mm)}00`;
           const durMin = x.kind === 'train' ? 60 : 90;

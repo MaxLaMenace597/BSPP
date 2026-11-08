@@ -23,7 +23,7 @@ window.ORAL = [
     "6 groupements (3 GIS, GAS, GSS, GFIS), 71 centres de secours, environ 8 700 militaires.",
     "Cite le nom du commandant (à vérifier la veille de l'entretien)."]},
   { id:'o-sport', q:"Comment vous préparez-vous physiquement ?", c:[
-    "Décris ton plan : 5 séances par semaine, repos le mardi et le jeudi.",
+    "Décris ton plan : course, tractions et chaise, plus le foot deux fois par semaine, avec deux jours de repos.",
     "Donne tes chiffres et ta progression (onglet Évolution de l'appli).",
     "Insiste sur la régularité, plus que sur la performance."]},
   { id:'o-qualites', q:"Quelles sont vos qualités et vos défauts ?", c:[

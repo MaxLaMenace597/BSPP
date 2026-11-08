@@ -283,6 +283,23 @@ a{color:var(--accent)}
 .choice.good{border-color:var(--ok);background:var(--ok-soft)}
 .choice.bad{border-color:var(--accent);background:var(--accent-soft)}
 .choice.dimmed{opacity:.55}
+.choice.sel{border-color:var(--info);background:var(--info-soft)}
+.qgrid{display:grid;grid-template-columns:repeat(10,1fr);gap:5px;margin-top:16px}
+.qgrid button{height:30px;border-radius:8px;background:var(--s2);border:1px solid var(--border);font-size:12px;font-weight:700;color:var(--dim)}
+.qgrid button.done{background:var(--info-soft);color:var(--info);border-color:transparent}
+.qgrid button.cur{outline:2px solid var(--accent)}
+.note20{font:800 64px/1 "Bricolage Grotesque",sans-serif;text-align:center;margin:8px 0 2px}
+.note20 small{font-size:26px;color:var(--faint)}
+.badges{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.bdg{background:var(--s2);border-radius:16px;padding:12px 6px;text-align:center}
+.bdg i{font-size:30px;font-style:normal;display:block;line-height:1.2}
+.bdg b{font-size:12.5px;display:block;margin-top:4px;line-height:1.2}
+.bdg span{font-size:11px;color:var(--dim);display:block;margin-top:3px;line-height:1.25}
+.bdg.off{opacity:.4;filter:grayscale(1)}
+.bdg-btn{position:relative;font-size:20px}
+.bdg-btn span{position:absolute;top:3px;right:2px;min-width:17px;height:17px;border-radius:9px;background:var(--accent);color:#fff;font:700 10.5px/17px Figtree,sans-serif;padding:0 4px}
+.tipcard{background:var(--warn-soft);border-color:transparent}
+.preset{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:8px 0}
 .expl{background:var(--s2);border-radius:16px;padding:12px 14px;margin-top:6px;font-size:14.5px}
 .expl b.g{color:var(--ok)} .expl b.b{color:var(--accent)}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
@@ -336,6 +353,7 @@ a{color:var(--accent)}
   <div class="wrap">
     <div class="logo"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 2c.6 3.2-1 5-2.6 6.7C7.8 10.4 6 12.2 6 15a6 6 0 0 0 12 0c0-2.3-1-4.1-2.3-5.6.1 1.7-.5 3-1.7 3.6.4-3.8-.7-7.6-2-11z"/></svg></div>
     <h1>Objectif BSPP<small id="hdr-sub">Sapeur-pompier de Paris</small></h1>
+    <button class="icon-btn bdg-btn" id="btn-badges" aria-label="Mes badges">🏅<span id="badge-n" hidden></span></button>
     <button class="icon-btn" id="btn-settings" aria-label="Réglages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
   </div>
 </header>
@@ -369,6 +387,7 @@ a{color:var(--accent)}
 
 <script src="data/questions.js"></script>
 <script src="data/fiches.js"></script>
+<script src="data/extras.js"></script>
 <script>
 'use strict';
 /* =========================================================
@@ -438,7 +457,8 @@ function freshState(){
     dossier:{ items: DOSSIER_DEFAULT.map(x => ({...x, done:false, at:null, note:''})), steps: STEPS_DEFAULT.map(x => ({...x, done:false, at:null})) },
     // Épreuves annoncées « dans 4 mois » le 7 novembre 2026 → 7 mars 2027 (modifiable dans Outils › Réglages du plan)
     train:{ start:t, exam: EXAM_DEFAULT > addD(t, 30) ? EXAM_DEFAULT : addMonths(t,4), rest:[2,4], goals:{ll:12, tr:30, ki:200}, tests:[], log:{} },
-    quiz:{ days:{}, st:{}, read:{} },
+    quiz:{ days:{}, st:{}, read:{}, exams:[], oral:{}, oralN:0 },
+    badges:{},
     ui:{ tab:'dossier', tsub:'today', qsub:'quiz' }
   };
 }
@@ -757,7 +777,7 @@ function buildSession(s){
     {h:'Aujourd\'hui', items: dte === 1 ? ["Repos complet ou 15 min de marche", "Prépare ton sac et ta tenue", "Repas riche en glucides (pâtes, riz), beaucoup d'eau", "Couche-toi tôt : 8 h de sommeil minimum"] : ["20 min de footing très facile + 4 lignes droites de 60 m", "Mobilité 10 min", "Bien manger, bien dormir"]}
   ]};
   if (isRest(s)) return { ...base, kind:'rest', title:'Repos — récupération', ico:'🛌', cls:'rest', dur:'facultatif 20 min', blocks:[
-    {h:'Récupération active (facultatif)', items:["20–30 min de marche ou de vélo très léger", "Mobilité 10 min : hanches, épaules, chevilles", "Gainage léger 2 × 30 s si tu as de l'énergie"]},
+    {h:'Récupération active (facultatif)', items:["20–30 min de marche ou de vélo très léger", "Ou 20–30 min de natation tranquille si tu as une piscine : l'agrément technique BSPP commence par des tests aquatiques", "Mobilité 10 min : hanches, épaules, chevilles", "Gainage léger 2 × 30 s si tu as de l'énergie"]},
     {h:'Le vrai travail du jour', cls:'soft', items:["C'est pendant le repos que les muscles progressent", "8 h de sommeil, 2 L d'eau, des protéines à chaque repas", "Fais ton quiz du jour 📚"]}
   ]};
 
@@ -947,6 +967,8 @@ function trainToday(){
   </div>`;
   if (!S.train.tests.length) h += `<div class="note"><b>Première étape :</b> l'évaluation de départ. Fais les 3 épreuves (Luc Léger → 15 min → tractions → 15 min → Killy) et saisis tes résultats : tout le programme se cale dessus.</div>`;
   h += sessionCard(t);
+  const TIPS = window.TIPS || [];
+  if (TIPS.length){ const tip = TIPS[Math.abs(dd('2026-01-01', t)) % TIPS.length]; h += `<div class="card tipcard"><div class="row" style="align-items:flex-start"><div style="font-size:24px">💡</div><div class="grow"><div class="faint small" style="font-weight:700;letter-spacing:.05em">CONSEIL DU JOUR</div><div style="margin-top:2px">${esc(tip)}</div></div></div></div>`; }
   const nx = addD(t, 1), n = buildSession(nx);
   h += `<div class="card" data-act="day" data-d="${nx}" style="cursor:pointer"><div class="row"><div class="sess-ico ${n.cls}" style="width:40px;height:40px;font-size:19px">${n.ico}</div><div class="grow"><div class="faint small" style="font-weight:700">DEMAIN</div><b>${esc(n.title)}</b></div>${ICON_CHEV}</div></div>`;
   h += goalsCard();
@@ -1085,6 +1107,7 @@ function trainTools(){
     <button class="tool" data-act="sim"><div class="ic">🏁</div><div class="grow"><b>Simulation jour J</b><div class="muted small">Luc Léger → 15 min → tractions → 15 min → Killy, résultats enregistrés</div></div>${ICON_CHEV}</button>
     <button class="tool" data-act="bip"><div class="ic">📣</div><div class="grow"><b>Bip Luc Léger</b><div class="muted small">Test complet ou navettes à un palier fixe</div></div>${ICON_CHEV}</button>
     <button class="tool" data-act="killy"><div class="ic">🪑</div><div class="grow"><b>Chrono Killy</b><div class="muted small">Chrono avec bip toutes les 30 s</div></div>${ICON_CHEV}</button>
+    <button class="tool" data-act="timer"><div class="ic">⏲️</div><div class="grow"><b>Minuteur EMOM / récup</b><div class="muted small">Bip chaque minute, ou compte à rebours entre les séries</div></div>${ICON_CHEV}</button>
     <button class="tool" data-act="count"><div class="ic">💪</div><div class="grow"><b>Compteur de tractions</b><div class="muted small">Tape à chaque répétition</div></div>${ICON_CHEV}</button>
   </div>
   <div class="sec-title"><h3>Réglages du plan</h3></div>
@@ -1366,6 +1389,7 @@ function trainClick(e){
   else if (a === 'bip') bipTool();
   else if (a === 'killy') killyTool();
   else if (a === 'count') countTool();
+  else if (a === 'timer') timerTool();
   else if (a === 'save-plan'){
     const st = $('pl-start').value, ex = $('pl-exam').value;
     if (!st || !ex || ex <= st){ toast('La date des épreuves doit être après le début'); return; }
@@ -1425,7 +1449,7 @@ function renderQuiz(){
   const okT = Object.values(Q.st).reduce((a,v) => a + v.ok, 0), koT = Object.values(Q.st).reduce((a,v) => a + v.ko, 0);
   const wrong = wrongIds();
   $('dot-quiz').hidden = !!(rec && rec.done);
-  let h = `<div class="seg"><button class="${sub==='quiz'?'on':''}" data-sub="quiz">Quiz</button><button class="${sub==='fiches'?'on':''}" data-sub="fiches">Fiches (${FICHES.length})</button><button class="${sub==='stats'?'on':''}" data-sub="stats">Progrès</button></div>`;
+  let h = `<div class="seg">${[['quiz','Quiz'],['exam','Examens'],['oral','Oral'],['fiches','Fiches'],['stats','Progrès']].map(([k,n]) => `<button class="${sub===k?'on':''}" data-sub="${k}">${n}</button>`).join('')}</div>`;
   if (sub === 'quiz'){
     const doneToday = rec && rec.done;
     h += `<div class="hero"><div class="row"><div class="grow"><div class="k">Quiz du jour · 5 questions</div>
@@ -1436,6 +1460,10 @@ function renderQuiz(){
     h += `<div class="sec-title"><h3>S'entraîner par thème</h3><span>10 questions</span></div><div class="card"><div class="chips">${Object.entries(THEMES).map(([k,v]) => `<button class="chip" data-act="theme" data-t="${k}">${v.e} ${esc(v.n)}</button>`).join('')}<button class="chip" data-act="theme" data-t="*">🎲 Tout mélangé</button></div></div>`;
     h += `<div class="card"><div class="row"><div class="grow"><b>Revoir mes erreurs</b><div class="muted small">${wrong.length ? `${wrong.length} question${wrong.length>1?'s':''} à retravailler` : 'Aucune erreur en attente 👌'}</div></div><button class="btn sm ${wrong.length?'primary':''}" data-act="wrong" ${wrong.length?'':'disabled style="opacity:.5"'}>Réviser</button></div></div>`;
     h += `<div class="note"><b>Comment ça marche :</b> chaque jour, 5 questions nouvelles mélangées entre les thèmes, plus tes erreurs récentes qui reviennent (répétition espacée). En faisant le quiz tous les jours jusqu'aux épreuves, tu passes sur environ ${Math.min(QS.length, 5*Math.max(1,dd(day,S.train.exam)))} questions.</div>`;
+  } else if (sub === 'exam'){
+    h += examTab();
+  } else if (sub === 'oral'){
+    h += oralTab();
   } else if (sub === 'fiches'){
     const byT = {};
     FICHES.forEach(f => (byT[f.t] = byT[f.t] || []).push(f));
@@ -1532,7 +1560,302 @@ $('v-quiz').addEventListener('click', e => {
   else if (a === 'theme') themeQuiz(b.dataset.t);
   else if (a === 'wrong'){ const ids = shuffle(wrongIds()).slice(0,10); if (ids.length) runQuiz(ids, { title:'Mes erreurs' }); }
   else if (a === 'fiche') openFiche(b.dataset.id);
+  else if (a === 'exam-start') runExam(b.dataset.f);
+  else if (a === 'exam-view'){ const ex = (S.quiz.exams||[]).find(x => x.id === b.dataset.id); if (ex) showExamResult(ex); }
+  else if (a === 'oral-open') oralSheet(b.dataset.id);
+  else if (a === 'oral-train') oralTrain();
 });
+
+/* =========================================================
+   EXAMENS BLANCS
+   ========================================================= */
+const EXAM_FMT = {
+  express:{ n:20, min:10, name:'Examen express', e:'⚡' },
+  complet:{ n:40, min:20, name:'Examen complet', e:'🎓' }
+};
+// Poids de chaque thème dans un examen (proportions conservées pour 20 ou 40 questions)
+const EXAM_W = { histoire:5, orga:6, recrut:4, grades:4, secours:8, incendie:5, engins:3, alerte:2, sigles:1, culture:1, sport:1 };
+const mention = n => n >= 16 ? 'Excellent : niveau agrément 💯' : n >= 14 ? 'Très bien 👏' : n >= 12 ? 'Bien, continue 👍' : n >= 10 ? 'Juste la moyenne : on révise' : 'À retravailler 📚';
+function examPick(n){
+  const keys = Object.keys(EXAM_W).filter(k => QS.some(q => q.t === k));
+  const tot = keys.reduce((a,k) => a + EXAM_W[k], 0);
+  const raw = keys.map(k => ({ k, x: EXAM_W[k]*n/tot }));
+  raw.forEach(r => r.c = Math.floor(r.x));
+  let left = n - raw.reduce((a,r) => a + r.c, 0);
+  raw.slice().sort((a,b) => (b.x - b.c) - (a.x - a.c)).forEach(r => { if (left > 0){ r.c++; left--; } });
+  const st = S.quiz.st, ids = [];
+  for (const r of raw){
+    if (!r.c) continue;
+    // priorité aux questions jamais vues ou mal maîtrisées, avec une part de hasard
+    const pool = shuffle(QS.filter(q => q.t === r.k)).sort((a,b) => (st[a.id] ? st[a.id].box : -1) - (st[b.id] ? st[b.id].box : -1));
+    ids.push(...shuffle(pool.slice(0, r.c*3)).slice(0, r.c).map(q => q.id));
+  }
+  return shuffle(ids);
+}
+function examTab(){
+  const ex = S.quiz.exams || [];
+  const bestN = ex.length ? Math.max(...ex.map(e => e.note)) : null;
+  let h = `<div class="hero"><div class="row"><div class="grow"><div class="k">Examens blancs</div>
+    <div class="big">${bestN == null ? 'À toi de jouer' : `${String(bestN).replace('.',',')}/20`}</div>
+    <div class="sub">${ex.length ? `meilleure note · ${ex.length} examen${ex.length>1?'s':''} passé${ex.length>1?'s':''}` : 'Conditions réelles : chrono, pas de correction avant la fin'}</div></div>
+    <div style="font-size:46px">📝</div></div></div>`;
+  for (const [k,F] of Object.entries(EXAM_FMT)){
+    h += `<div class="card"><div class="row"><div style="font-size:28px">${F.e}</div><div class="grow"><b>${F.name}</b><div class="muted small">${F.n} questions · ${F.min} min · tous les thèmes</div></div><button class="btn sm primary" data-act="exam-start" data-f="${k}">Commencer</button></div></div>`;
+  }
+  h += `<div class="note"><b>Règles :</b> pas de correction pendant l'épreuve, tu peux revenir sur une question avant de rendre ta copie. Quand le temps est écoulé, la copie part toute seule. Tes erreurs rejoignent ensuite ta révision du quiz.</div>`;
+  if (ex.length){
+    const last = ex.slice(-12);
+    h += `<div class="sec-title"><h3>Mes notes</h3><span>objectif 16/20</span></div><div class="card">
+      <div style="position:relative;display:flex;align-items:flex-end;gap:6px;height:110px;border-bottom:1px solid var(--border)">
+        <div style="position:absolute;left:0;right:0;bottom:${16/20*96}px;border-top:1.5px dashed var(--ok);opacity:.7"></div>
+        ${last.map(e => `<div style="flex:1;text-align:center;position:relative"><div class="faint" style="font-size:10px">${String(e.note).replace('.',',')}</div><div style="height:${Math.max(3, e.note/20*96)}px;background:${e.note>=16?'var(--ok)':e.note>=12?'var(--accent-2)':'var(--accent)'};border-radius:6px 6px 2px 2px"></div></div>`).join('')}
+      </div></div>`;
+    h += `<div class="card tight">${ex.slice().reverse().map(e => `<div class="dayrow" data-act="exam-view" data-id="${e.id}" style="cursor:pointer"><div class="dt"><span>${MON[pd(e.date).getMonth()]}</span><b>${pd(e.date).getDate()}</b></div><div class="grow"><b>${EXAM_FMT[e.fmt].name}</b><div class="faint small">${e.score}/${e.n} bonnes réponses · ${fmtSec(e.dur)}</div></div><b style="font-size:17px">${String(e.note).replace('.',',')}</b><span class="faint small">/20</span>${ICON_CHEV}</div>`).join('')}</div>`;
+  }
+  return h;
+}
+function runExam(fk){
+  const F = EXAM_FMT[fk], ids = examPick(F.n);
+  const orders = ids.map(id => shuffle(QBY[id].c.map((c,k) => k)));
+  const ans = ids.map(() => null);
+  const limit = F.min*60, t0 = performance.now();
+  let i = 0, timer = 0, done = false, warned = false, adv = 0;
+  openOv(F.name, '', () => { clearInterval(timer); clearTimeout(adv); });
+  const tick = () => {
+    const left = limit - (performance.now() - t0)/1000;
+    $('ov-extra').textContent = '⏱ ' + fmtClock(left);
+    if (!warned && left <= 60){ warned = true; toast("Plus qu'une minute !"); vibrate(200); }
+    if (left <= 0) finish(true);
+  };
+  timer = setInterval(tick, 500); tick();
+  function show(){
+    const q = QBY[ids[i]], th = THEMES[q.t] || {n:q.t, e:''};
+    const answered = ans.filter(a => a != null).length;
+    $('ov-body').innerHTML = `<div class="prog"><div style="width:${answered/ids.length*100}%"></div></div>
+      <div class="row small faint" style="justify-content:space-between;margin-bottom:8px"><span>Question ${i+1} / ${ids.length}</span><span>${answered} répondue${answered>1?'s':''}</span></div>
+      <span class="tag red qtheme">${th.e} ${esc(th.n)}</span>
+      <div class="qtext">${esc(q.q)}</div>
+      <div id="ex-c">${orders[i].map(k => `<button class="choice ${ans[i]===k?'sel':''}" data-k="${k}">${esc(q.c[k])}</button>`).join('')}</div>
+      <div class="btns" style="margin-top:6px"><button class="btn" id="ex-prev" ${i===0?'disabled style="opacity:.4"':''}>‹ Précédente</button>${i < ids.length-1 ? '<button class="btn primary" id="ex-next">Suivante ›</button>' : '<button class="btn primary" id="ex-end">Rendre ma copie</button>'}</div>
+      <div class="qgrid">${ids.map((_,k) => `<button data-j="${k}" class="${k===i?'cur':''} ${ans[k]!=null?'done':''}">${k+1}</button>`).join('')}</div>
+      ${i < ids.length-1 ? '<button class="btn ghost block" id="ex-fin" style="margin-top:12px">Rendre ma copie maintenant</button>' : ''}`;
+    $('ov-body').scrollTop = 0;
+    $('ex-c').onclick = e => {
+      const b = e.target.closest('.choice'); if (!b) return;
+      ans[i] = +b.dataset.k; vibrate(15);
+      $('ex-c').querySelectorAll('.choice').forEach(x => x.classList.toggle('sel', x === b));
+      clearTimeout(adv);
+      if (i < ids.length-1) adv = setTimeout(() => { if (!done){ i++; show(); } }, 260); else show();
+    };
+    $('ex-prev').onclick = () => { if (i > 0){ i--; show(); } };
+    if ($('ex-next')) $('ex-next').onclick = () => { i++; show(); };
+    $('ov-body').querySelector('.qgrid').onclick = e => { const b = e.target.closest('[data-j]'); if (b){ i = +b.dataset.j; show(); } };
+    const confirmBtn = btn => { if (!btn) return; btn.onclick = () => {
+      const miss = ans.filter(a => a == null).length;
+      if (miss && !btn.dataset.c){ btn.dataset.c = 1; btn.textContent = `${miss} sans réponse : rendre quand même ?`; return; }
+      finish(false);
+    }; };
+    confirmBtn($('ex-end')); confirmBtn($('ex-fin'));
+  }
+  function finish(timeout){
+    if (done) return; done = true; clearInterval(timer); clearTimeout(adv);
+    const ok = ans.map(a => a === 0);
+    const score = ok.filter(Boolean).length;
+    ids.forEach((id, k) => recordAnswer(id, ok[k]));
+    const rec = { id:'e'+Date.now(), date:todayStr(), fmt:fk, n:ids.length, score, note: Math.round(score/ids.length*200)/10, dur: Math.min(limit, Math.round((performance.now()-t0)/1000)), ids, ans };
+    (S.quiz.exams = S.quiz.exams || []).push(rec); save();
+    showExamResult(rec, timeout);
+  }
+  show();
+}
+function showExamResult(rec, timeout){
+  const F = EXAM_FMT[rec.fmt];
+  if (!$('ov').classList.contains('on')) openOv(F.name, '');
+  $('ov-title').textContent = F.name; $('ov-extra').textContent = '';
+  const per = {};
+  rec.ids.forEach((id, k) => { const q = QBY[id]; if (!q) return; const p = per[q.t] = per[q.t] || { ok:0, n:0 }; p.n++; if (rec.ans[k] === 0) p.ok++; });
+  const item = (id, k) => { const q = QBY[id]; if (!q) return ''; const a = rec.ans[k], good = a === 0;
+    return `<div class="rq"><div>${good ? '✅' : '❌'} <b>${esc(q.q)}</b></div>${!good ? `<div class="muted" style="margin-top:3px">Ta réponse : ${a == null ? '<i>aucune</i>' : esc(q.c[a])}</div>` : ''}<div style="margin-top:3px;color:var(--ok)">→ ${esc(q.c[0])}</div>${q.e ? `<div class="faint small" style="margin-top:3px">${esc(q.e)}</div>` : ''}</div>`; };
+  const wrong = rec.ids.map((id,k) => rec.ans[k] === 0 ? '' : item(id,k)).join('');
+  const right = rec.ids.map((id,k) => rec.ans[k] === 0 ? item(id,k) : '').join('');
+  $('ov-body').innerHTML = `${timeout ? '<div class="warnbox" style="text-align:center">⏱ Temps écoulé : ta copie a été rendue automatiquement.</div>' : ''}
+    <div class="note20">${String(rec.note).replace('.',',')}<small>/20</small></div>
+    <p style="text-align:center;font-weight:700;margin:4px 0">${mention(rec.note)}</p>
+    <p class="muted small" style="text-align:center;margin:0 0 14px">${rec.score} bonnes réponses sur ${rec.n} · ${fmtSec(rec.dur)} · ${fmtD(rec.date)}</p>
+    <div class="card tight">${Object.entries(per).map(([t,p]) => { const th = THEMES[t] || {n:t,e:''}; return `<div class="tbar"><span style="width:26px">${th.e}</span><div class="grow"><div class="row" style="justify-content:space-between"><b class="small">${esc(th.n)}</b><span class="faint small">${p.ok}/${p.n}</span></div><div class="bar" style="margin-top:5px"><div style="width:${p.ok/p.n*100}%"></div></div></div></div>`; }).join('')}</div>
+    ${wrong ? `<div class="sec-title"><h3>Correction de tes erreurs</h3><span>${rec.n - rec.score}</span></div><div class="card res-list">${wrong}</div>` : '<div class="card" style="text-align:center">Aucune erreur, chapeau ! 🏆</div>'}
+    ${right ? `<button class="btn block" id="ex-showok">Voir aussi les bonnes réponses</button><div class="card res-list" id="ex-ok" hidden style="margin-top:10px">${right}</div>` : ''}
+    <div class="btns" style="margin-top:14px"><button class="btn" id="ex-again">Nouvel examen</button><button class="btn primary" id="ex-close">Fermer</button></div>`;
+  $('ov-body').scrollTop = 0;
+  if ($('ex-showok')) $('ex-showok').onclick = () => { $('ex-ok').hidden = !$('ex-ok').hidden; };
+  $('ex-again').onclick = () => runExam(rec.fmt);
+  $('ex-close').onclick = closeOv;
+}
+
+/* =========================================================
+   PRÉPA ORAL
+   ========================================================= */
+const ORAL = window.ORAL || [];
+function oralTab(){
+  const O = S.quiz.oral || {};
+  const ready = ORAL.filter(o => (O[o.id]||'').trim()).length;
+  let h = `<div class="hero"><div class="row"><div class="grow"><div class="k">Entretien de motivation</div>
+    <div class="big">${ready}/${ORAL.length}</div><div class="sub">réponses préparées · ${S.quiz.oralN||0} entraînement${(S.quiz.oralN||0)>1?'s':''} à voix haute</div></div><div style="font-size:46px">🎤</div></div>
+    <button class="btn white block" style="margin-top:14px;position:relative;z-index:1" data-act="oral-train">S'entraîner à voix haute</button></div>
+    <div class="note"><b>Comment faire :</b> pour chaque question, note tes idées clés (pas un texte à réciter). Ensuite, entraîne-toi : une question au hasard, 1 min 30 pour répondre à voix haute, puis compare avec les conseils.</div>
+    <div class="card tight">`;
+  h += ORAL.map(o => `<button class="fiche" data-act="oral-open" data-id="${o.id}"><div class="em">${(O[o.id]||'').trim() ? '✅' : '💬'}</div><div class="grow"><b>${esc(o.q)}</b>${(O[o.id]||'').trim() ? '<div class="muted small">réponse préparée</div>' : ''}</div>${ICON_CHEV}</button>`).join('');
+  return h + `</div>`;
+}
+function oralSheet(id){
+  const o = ORAL.find(x => x.id === id); if (!o) return;
+  openSheet(`<h3>${esc(o.q)}</h3>
+    <div class="block"><h4>Conseils</h4><ul>${o.c.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>
+    <div class="field"><label>Mes idées clés</label><textarea id="or-t" rows="6" placeholder="Quelques mots-clés suffisent : ce que tu veux absolument dire.">${esc((S.quiz.oral||{})[id]||'')}</textarea></div>
+    <button class="btn primary block" data-x="ok">Enregistrer</button>`, el => {
+      el.querySelector('[data-x=ok]').onclick = () => { (S.quiz.oral = S.quiz.oral || {})[id] = el.querySelector('#or-t').value; save(); closeSheet(); renderQuiz(); checkBadges(); toast('Réponse enregistrée'); };
+    });
+}
+function oralTrain(){
+  let raf = 0, t0 = 0, running = false, last = null;
+  const stop = () => { running = false; cancelAnimationFrame(raf); };
+  openOv('Entraînement oral', '', stop);
+  const next = () => {
+    stop();
+    const pool = ORAL.filter(o => o.id !== last); const o = pool[Math.floor(Math.random()*pool.length)]; last = o.id;
+    const mine = ((S.quiz.oral||{})[o.id]||'').trim();
+    $('ov-body').innerHTML = `<div class="lbl" style="margin-top:10px">Le recruteur te demande :</div>
+      <div class="qtext" style="text-align:center;margin:12px 0 6px">« ${esc(o.q)} »</div>
+      <div class="timer sm" id="or-time">1:30</div>
+      <div class="prog"><div id="or-bar" style="width:0"></div></div>
+      <button class="btn primary block" id="or-go" style="height:54px">Je réponds à voix haute</button>
+      <div id="or-tips" hidden><div class="card" style="margin-top:12px"><div class="block" style="margin-top:0"><h4>Conseils</h4><ul>${o.c.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>${mine ? `<div class="block"><h4>Tes idées clés</h4><p style="white-space:pre-wrap;margin:0">${esc(mine)}</p></div>` : ''}</div></div>
+      <div class="btns" style="margin-top:10px"><button class="btn" id="or-show">Voir les conseils</button><button class="btn" id="or-next">Autre question</button></div>`;
+    $('or-show').onclick = () => { $('or-tips').hidden = false; $('or-show').remove(); };
+    $('or-next').onclick = next;
+    $('or-go').onclick = () => {
+      if (running){ stop(); beepEnd(); $('or-go').textContent = 'Recommencer'; $('or-tips').hidden = false; return; }
+      audio(); running = true; t0 = performance.now(); $('or-go').textContent = "J'ai fini";
+      S.quiz.oralN = (S.quiz.oralN||0) + 1; save();
+      const tick = () => { if (!running) return; const s = (performance.now()-t0)/1000, left = 90 - s;
+        $('or-time').textContent = fmtClock(Math.max(0,left)); $('or-bar').style.width = clamp(s/90,0,1)*100 + '%';
+        if (left <= 0){ stop(); beepEnd(); $('or-go').textContent = 'Recommencer'; $('or-tips').hidden = false; return; }
+        raf = requestAnimationFrame(tick); };
+      raf = requestAnimationFrame(tick);
+    };
+  };
+  next();
+}
+
+/* =========================================================
+   MINUTEUR EMOM / RÉCUP
+   ========================================================= */
+function timerTool(){
+  let mode = 'emom', iv = 0, running = false;
+  const stop = () => { running = false; clearInterval(iv); releaseWake(); };
+  openOv('Minuteur', `<div class="seg" id="tm-mode"><button class="on" data-m="emom">EMOM</button><button data-m="rest">Récup entre séries</button></div><div id="tm-body"></div>`, stop);
+  const draw = () => {
+    stop();
+    if (mode === 'emom'){
+      $('tm-body').innerHTML = `<div class="f2"><div class="field"><label>Durée (minutes)</label><input type="number" id="tm-n" value="12" min="1" max="60"></div><div class="field"><label>Tractions par minute</label><input type="number" id="tm-r" value="${Math.max(1, Math.round(workLevel('tr', todayStr())*0.3))}" min="1" max="30"></div></div>
+        <div class="lbl" id="tm-lbl">Bip au début de chaque minute</div><div class="timer" id="tm-t">0:00</div>
+        <div class="bigstat"><div><b id="tm-m">—</b><span>minute</span></div><div><b id="tm-tot">0</b><span>tractions faites</span></div><div><b id="tm-left">—</b><span>restantes</span></div></div>
+        <div class="prog"><div id="tm-bar" style="width:0"></div></div>
+        <button class="btn primary block" id="tm-go" style="height:58px;font-size:17px">Démarrer</button>`;
+      $('tm-go').onclick = () => {
+        if (running){ stop(); $('tm-go').textContent = 'Recommencer'; $('tm-lbl').textContent = 'Arrêté'; return; }
+        const N = clamp(+$('tm-n').value || 12, 1, 60), R = clamp(+$('tm-r').value || 4, 1, 50);
+        audio(); keepAwake(); running = true; $('tm-go').textContent = 'Arrêter';
+        const t0 = performance.now() + 5000; let lastMin = -1, lastBeep = -1;
+        $('tm-lbl').textContent = 'Départ dans 5 s…';
+        iv = setInterval(() => {
+          const s = (performance.now() - t0)/1000;
+          if (s < 0){ const c = Math.ceil(-s); $('tm-t').textContent = '0:0' + c; if (c !== lastBeep && c <= 3){ lastBeep = c; beep(660,.08); } return; }
+          const m = Math.floor(s/60), inMin = s - m*60;
+          if (m >= N){ stop(); beepEnd(); $('tm-t').textContent = '0:00'; $('tm-lbl').textContent = `Terminé 👏 ${N*R} tractions`; $('tm-go').textContent = 'Recommencer'; $('tm-bar').style.width = '100%'; return; }
+          if (m !== lastMin){ lastMin = m; beepPalier(); $('tm-lbl').textContent = `Go : ${R} tractions !`; }
+          const left = 60 - inMin; $('tm-t').textContent = fmtClock(left);
+          const c = Math.ceil(left); if (c <= 3 && c !== lastBeep){ lastBeep = c; beep(660,.08); }
+          if (inMin > 15) $('tm-lbl').textContent = 'Repos jusqu\'au prochain bip';
+          $('tm-m').textContent = `${m+1}/${N}`; $('tm-tot').textContent = (m+1)*R; $('tm-left').textContent = (N-m-1)*R;
+          $('tm-bar').style.width = (s/(N*60)*100) + '%';
+        }, 100);
+      };
+    } else {
+      let dur = 120, sets = 0;
+      $('tm-body').innerHTML = `<div class="lbl">Durée de la récup</div><div class="preset" id="tm-p">${[60,90,120,150,180].map(v => `<button class="chip ${v===dur?'on':''}" data-v="${v}">${fmtClock(v)}</button>`).join('')}</div>
+        <div class="timer" id="tm-t">${fmtClock(dur)}</div><div class="prog"><div id="tm-bar" style="width:0"></div></div>
+        <div class="lbl" id="tm-lbl">Lance la récup juste après ta série</div>
+        <button class="btn primary block" id="tm-go" style="height:58px;font-size:17px;margin-top:10px">Série faite → récup</button>
+        <div class="bigstat" style="grid-template-columns:1fr"><div><b id="tm-s">0</b><span>séries faites</span></div></div>`;
+      $('tm-p').onclick = e => { const b = e.target.closest('[data-v]'); if (!b || running) return; dur = +b.dataset.v; $('tm-p').querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x === b)); $('tm-t').textContent = fmtClock(dur); };
+      $('tm-go').onclick = () => {
+        if (running){ stop(); $('tm-go').textContent = 'Série faite → récup'; $('tm-lbl').textContent = 'Récup interrompue'; return; }
+        audio(); keepAwake(); running = true; sets++; $('tm-s').textContent = sets; $('tm-go').textContent = 'Arrêter la récup'; $('tm-lbl').textContent = 'Récupère…';
+        const t0 = performance.now(); let lastBeep = -1;
+        iv = setInterval(() => {
+          const s = (performance.now()-t0)/1000, left = dur - s;
+          $('tm-t').textContent = fmtClock(Math.max(0, Math.ceil(left))); $('tm-bar').style.width = clamp(s/dur,0,1)*100 + '%';
+          const c = Math.ceil(left); if (c <= 3 && c > 0 && c !== lastBeep){ lastBeep = c; beep(660,.08); }
+          if (left <= 0){ stop(); beepPalier(); $('tm-lbl').textContent = `C'est reparti : série ${sets+1} !`; $('tm-go').textContent = 'Série faite → récup'; }
+        }, 100);
+      };
+    }
+  };
+  $('tm-mode').onclick = e => { const b = e.target.closest('[data-m]'); if (!b) return; mode = b.dataset.m; $('tm-mode').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); draw(); };
+  draw();
+}
+
+/* =========================================================
+   BADGES
+   ========================================================= */
+function badgeList(){
+  const T = S.train, G = T.goals, Q = S.quiz;
+  const bt = k => best(k) || 0;
+  const nDone = Object.values(T.log).filter(l => l && l.done).length;
+  const seen = Object.keys(Q.st).filter(id => QBY[id]).length;
+  const ex = Q.exams || [];
+  const oralReady = Object.values(Q.oral || {}).filter(v => (v||'').trim()).length;
+  return [
+    {id:'eval', e:'🚀', n:'Premier pas', d:'Évaluation de départ saisie', ok: T.tests.length > 0},
+    {id:'s10', e:'💪', n:'Lancé', d:'10 séances validées', ok: nDone >= 10},
+    {id:'s50', e:'🦾', n:'Machine', d:'50 séances validées', ok: nDone >= 50},
+    {id:'prog', e:'📈', n:'Ça progresse', d:'Battre ton premier test', ok: ['ll','tr','ki'].some(k => best(k) != null && baseline(k) != null && best(k) > baseline(k))},
+    {id:'p10', e:'🏃', n:'Palier 10', d:'Luc Léger', ok: bt('ll') >= 10},
+    {id:'p12', e:'⚡', n:`Palier ${G.ll}`, d:'Objectif Luc Léger', ok: bt('ll') >= G.ll},
+    {id:'t20', e:'🔩', n:'Barre de fer', d:'20 tractions', ok: bt('tr') >= 20},
+    {id:'t30', e:'🏆', n:`${G.tr} tractions`, d:'Objectif tractions', ok: bt('tr') >= G.tr},
+    {id:'k168', e:'🪑', n:'20/20 Killy', d:'Tenir 2 min 48', ok: bt('ki') >= 168},
+    {id:'k200', e:'🧱', n:'Inébranlable', d:'Objectif Killy', ok: bt('ki') >= G.ki},
+    {id:'sim', e:'🏁', n:'Répétition générale', d:'Simulation jour J faite', ok: T.tests.some(t => t.note === 'Simulation complète')},
+    {id:'dossier', e:'📁', n:'Dossier bouclé', d:'Toutes les pièces envoyées', ok: S.dossier.items.length > 0 && S.dossier.items.every(i => i.done)},
+    {id:'q7', e:'📚', n:'Studieux', d:'Quiz du jour 7 jours de suite', ok: quizStreak() >= 7},
+    {id:'q30', e:'🧠', n:'Assidu', d:'Quiz du jour 30 jours de suite', ok: quizStreak() >= 30},
+    {id:'v300', e:'🗂️', n:'Encyclopédie', d:'300 questions vues', ok: seen >= 300},
+    {id:'fiches', e:'📖', n:'Rat de bibliothèque', d:'Toutes les fiches lues', ok: FICHES.length > 0 && FICHES.every(f => Q.read[f.id])},
+    {id:'ex14', e:'🎓', n:'Admissible', d:'14/20 à un examen blanc', ok: ex.some(e => e.note >= 14)},
+    {id:'ex18', e:'🥇', n:'Major de promo', d:'18/20 à un examen complet', ok: ex.some(e => e.fmt === 'complet' && e.note >= 18)},
+    {id:'oral', e:'🎤', n:"Prêt pour l'oral", d:'10 réponses préparées', ok: oralReady >= 10}
+  ];
+}
+function checkBadges(){
+  S.badges = S.badges || {};
+  const list = badgeList();
+  const fresh = list.filter(b => b.ok && !S.badges[b.id]);
+  if (fresh.length){
+    fresh.forEach(b => S.badges[b.id] = todayStr()); save();
+    setTimeout(() => toast(fresh.length === 1 ? `Badge débloqué : ${fresh[0].e} ${fresh[0].n}` : `${fresh.length} badges débloqués 🏅`), 500);
+  }
+  const n = Object.keys(S.badges).filter(id => list.some(b => b.id === id)).length;
+  $('badge-n').hidden = !n; $('badge-n').textContent = n;
+}
+$('btn-badges').addEventListener('click', () => {
+  const list = badgeList(), got = S.badges || {};
+  const n = list.filter(b => got[b.id]).length;
+  openSheet(`<h3>Mes badges</h3><p class="muted small" style="margin:0">${n} / ${list.length} débloqués. Ils se gagnent tout seuls, en avançant sur le dossier, l'entraînement et le quiz.</p>
+    <div class="badges">${list.map(b => `<div class="bdg ${got[b.id]?'':'off'}"><i>${b.e}</i><b>${esc(b.n)}</b><span>${esc(b.d)}</span>${got[b.id] ? `<span style="color:var(--ok)">${fmtD(got[b.id])}</span>` : ''}</div>`).join('')}</div>`);
+});
+
 
 /* =========================================================
    Réglages
@@ -1572,7 +1895,7 @@ function setTab(t){
 }
 document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
 function render(){
-  renderDossier(); renderTrain(); renderQuiz();
+  renderDossier(); renderTrain(); renderQuiz(); checkBadges();
 }
 let lastDay = todayStr();
 document.addEventListener('visibilitychange', () => { if (!document.hidden && todayStr() !== lastDay){ lastDay = todayStr(); planWeekOffset = null; render(); } });

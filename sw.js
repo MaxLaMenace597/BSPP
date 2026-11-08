@@ -1,8 +1,8 @@
 // Permet à « Objectif BSPP » de s'ouvrir même sans réseau.
 // La page est toujours rechargée depuis le site quand il y a du réseau (tu as donc toujours la dernière version),
 // et la copie gardée sur le téléphone sert seulement hors ligne.
-const CACHE = 'objectif-bspp-v1';
-const FILES = ['./', './index.html', './data/questions.js', './data/fiches.js', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
+const CACHE = 'objectif-bspp-v2';
+const FILES = ['./', './index.html', './data/questions.js', './data/fiches.js', './data/extras.js', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

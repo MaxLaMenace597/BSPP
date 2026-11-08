@@ -584,6 +584,7 @@ function renderDossier(){
       <div class="grow"><div style="font-weight:700">${esc(s.t)}</div><div class="muted small">${esc(s.d)}${s.done && s.at ? ` · <span class="tag ok">fait le ${fmtD(s.at)}</span>` : ''}</div></div>
     </div>`).join('')}</div></div>
   <div class="note"><b>À adapter :</b> cette liste reprend les pièces que les armées demandent le plus souvent. La liste officielle, c'est celle que t'a donnée ton conseiller CIRFA : supprime ce qui ne te concerne pas et ajoute ce qu'il t'a demandé en plus.</div>`;
+  html += bagCard();
   $('v-dossier').innerHTML = html;
 }
 function itemRow(x){
@@ -649,6 +650,8 @@ $('v-dossier').addEventListener('click', e => {
   }
   else if (act === 'open-item') itemSheet(id);
   else if (act === 'add-item') addItemSheet();
+  else if (act === 'bag'){ const B = S.dossier.bag = S.dossier.bag || {}; B[id] = !B[id]; if (B[id]) vibrate(20); save(); renderDossier(); }
+  else if (act === 'bag-reset'){ S.dossier.bag = {}; save(); renderDossier(); }
   else if (act === 'step'){ const s = S.dossier.steps.find(x => x.id === id); s.done = !s.done; s.at = s.done ? todayStr() : null; save(); renderDossier(); }
 });
 
@@ -971,6 +974,7 @@ function trainToday(){
   if (TIPS.length){ const tip = TIPS[Math.abs(dd('2026-01-01', t)) % TIPS.length]; h += `<div class="card tipcard"><div class="row" style="align-items:flex-start"><div style="font-size:24px">💡</div><div class="grow"><div class="faint small" style="font-weight:700;letter-spacing:.05em">CONSEIL DU JOUR</div><div style="margin-top:2px">${esc(tip)}</div></div></div></div>`; }
   const nx = addD(t, 1), n = buildSession(nx);
   h += `<div class="card" data-act="day" data-d="${nx}" style="cursor:pointer"><div class="row"><div class="sess-ico ${n.cls}" style="width:40px;height:40px;font-size:19px">${n.ico}</div><div class="grow"><div class="faint small" style="font-weight:700">DEMAIN</div><b>${esc(n.title)}</b></div>${ICON_CHEV}</div></div>`;
+  h += weekCard();
   h += goalsCard();
   return h;
 }
@@ -1108,6 +1112,7 @@ function trainTools(){
     <button class="tool" data-act="bip"><div class="ic">📣</div><div class="grow"><b>Bip Luc Léger</b><div class="muted small">Test complet ou navettes à un palier fixe</div></div>${ICON_CHEV}</button>
     <button class="tool" data-act="killy"><div class="ic">🪑</div><div class="grow"><b>Chrono Killy</b><div class="muted small">Chrono avec bip toutes les 30 s</div></div>${ICON_CHEV}</button>
     <button class="tool" data-act="timer"><div class="ic">⏲️</div><div class="grow"><b>Minuteur EMOM / récup</b><div class="muted small">Bip chaque minute, ou compte à rebours entre les séries</div></div>${ICON_CHEV}</button>
+    <button class="tool" data-act="agenda"><div class="ic">📅</div><div class="grow"><b>Ajouter à mon agenda</b><div class="muted small">Toutes tes séances avec un rappel avant chacune</div></div>${ICON_CHEV}</button>
     <button class="tool" data-act="count"><div class="ic">💪</div><div class="grow"><b>Compteur de tractions</b><div class="muted small">Tape à chaque répétition</div></div>${ICON_CHEV}</button>
   </div>
   <div class="sec-title"><h3>Réglages du plan</h3></div>
@@ -1390,6 +1395,7 @@ function trainClick(e){
   else if (a === 'killy') killyTool();
   else if (a === 'count') countTool();
   else if (a === 'timer') timerTool();
+  else if (a === 'agenda') agendaSheet();
   else if (a === 'save-plan'){
     const st = $('pl-start').value, ex = $('pl-exam').value;
     if (!st || !ex || ex <= st){ toast('La date des épreuves doit être après le début'); return; }
@@ -1459,6 +1465,11 @@ function renderQuiz(){
       <button class="btn white block" style="margin-top:14px;position:relative;z-index:1" data-act="daily">${doneToday ? 'Revoir les réponses' : rec && rec.ans && rec.ans.length ? 'Continuer' : 'Commencer le quiz du jour'}</button></div>`;
     h += `<div class="sec-title"><h3>S'entraîner par thème</h3><span>10 questions</span></div><div class="card"><div class="chips">${Object.entries(THEMES).map(([k,v]) => `<button class="chip" data-act="theme" data-t="${k}">${v.e} ${esc(v.n)}</button>`).join('')}<button class="chip" data-act="theme" data-t="*">🎲 Tout mélangé</button></div></div>`;
     h += `<div class="card"><div class="row"><div class="grow"><b>Revoir mes erreurs</b><div class="muted small">${wrong.length ? `${wrong.length} question${wrong.length>1?'s':''} à retravailler` : 'Aucune erreur en attente 👌'}</div></div><button class="btn sm ${wrong.length?'primary':''}" data-act="wrong" ${wrong.length?'':'disabled style="opacity:.5"'}>Réviser</button></div></div>`;
+    h += `<div class="sec-title"><h3>Autres façons de réviser</h3></div><div class="card tight">
+      <button class="tool" data-act="psy"><div class="ic">🧩</div><div class="grow"><b>Tests psychotechniques</b><div class="muted small">Suites logiques, calcul mental, problèmes · 15 q en 6 min${(S.quiz.psy||[]).length ? ` · record ${Math.max(...S.quiz.psy.map(x => x.score))}/15` : ''}</div></div>${ICON_CHEV}</button>
+      <button class="tool" data-act="cards"><div class="ic">🃏</div><div class="grow"><b>Cartes de révision</b><div class="muted small">20 cartes recto-verso, idéal dans les transports</div></div>${ICON_CHEV}</button>
+      <button class="tool" data-act="survie"><div class="ic">💥</div><div class="grow"><b>Mort subite</b><div class="muted small">15 s par question, une erreur et c'est fini${S.quiz.survie ? ` · record ${S.quiz.survie}` : ''}</div></div>${ICON_CHEV}</button>
+    </div>`;
     h += `<div class="note"><b>Comment ça marche :</b> chaque jour, 5 questions nouvelles mélangées entre les thèmes, plus tes erreurs récentes qui reviennent (répétition espacée). En faisant le quiz tous les jours jusqu'aux épreuves, tu passes sur environ ${Math.min(QS.length, 5*Math.max(1,dd(day,S.train.exam)))} questions.</div>`;
   } else if (sub === 'exam'){
     h += examTab();
@@ -1564,6 +1575,9 @@ $('v-quiz').addEventListener('click', e => {
   else if (a === 'exam-view'){ const ex = (S.quiz.exams||[]).find(x => x.id === b.dataset.id); if (ex) showExamResult(ex); }
   else if (a === 'oral-open') oralSheet(b.dataset.id);
   else if (a === 'oral-train') oralTrain();
+  else if (a === 'psy') runPsy();
+  else if (a === 'cards') runCards();
+  else if (a === 'survie') runSurvival();
 });
 
 /* =========================================================
@@ -1835,7 +1849,9 @@ function badgeList(){
     {id:'fiches', e:'📖', n:'Rat de bibliothèque', d:'Toutes les fiches lues', ok: FICHES.length > 0 && FICHES.every(f => Q.read[f.id])},
     {id:'ex14', e:'🎓', n:'Admissible', d:'14/20 à un examen blanc', ok: ex.some(e => e.note >= 14)},
     {id:'ex18', e:'🥇', n:'Major de promo', d:'18/20 à un examen complet', ok: ex.some(e => e.fmt === 'complet' && e.note >= 18)},
-    {id:'oral', e:'🎤', n:"Prêt pour l'oral", d:'10 réponses préparées', ok: oralReady >= 10}
+    {id:'oral', e:'🎤', n:"Prêt pour l'oral", d:'10 réponses préparées', ok: oralReady >= 10},
+    {id:'psy', e:'🧩', n:'Cerveau affûté', d:'13/15 aux psychotechniques', ok: (Q.psy||[]).some(x => x.score >= 13)},
+    {id:'survie', e:'💥', n:'Survivant', d:'20 d\'affilée en mort subite', ok: (Q.survie||0) >= 20}
   ];
 }
 function checkBadges(){
@@ -1856,6 +1872,253 @@ $('btn-badges').addEventListener('click', () => {
     <div class="badges">${list.map(b => `<div class="bdg ${got[b.id]?'':'off'}"><i>${b.e}</i><b>${esc(b.n)}</b><span>${esc(b.d)}</span>${got[b.id] ? `<span style="color:var(--ok)">${fmtD(got[b.id])}</span>` : ''}</div>`).join('')}</div>`);
 });
 
+
+
+/* =========================================================
+   TESTS PSYCHOTECHNIQUES (questions générées à l'infini)
+   ========================================================= */
+const RI = (a, b) => a + Math.floor(Math.random()*(b - a + 1));
+const PICK = arr => arr[Math.floor(Math.random()*arr.length)];
+const fr = n => String(n).replace('.', ',');
+function near(ans, spread, min=0){
+  const s = new Set(); let g = 0;
+  while (s.size < 3 && g++ < 200){ const d = RI(-spread, spread); const v = ans + d; if (d && v >= min && v !== ans) s.add(v); }
+  let k = 1; while (s.size < 3){ if (ans + k !== ans) s.add(ans + k); k++; }
+  return [...s];
+}
+const PSY_GEN = {
+  suite(){
+    const t = RI(1, 8); let terms = [], ans, e;
+    if (t === 1){ const a = RI(1,30), d = RI(2,12); terms = [0,1,2,3,4].map(k => a + k*d); ans = a + 5*d; e = `On ajoute ${d} à chaque fois.`; }
+    else if (t === 2){ const a = RI(1,5), r = PICK([2,3]); terms = [0,1,2,3,4].map(k => a * r**k); ans = a * r**5; e = `On multiplie par ${r} à chaque fois.`; }
+    else if (t === 3){ const a = RI(1,20), d0 = RI(1,4); terms = [a]; for (let k=0;k<4;k++) terms.push(terms[k] + d0 + k); ans = terms[4] + d0 + 4; e = `L'écart augmente de 1 à chaque fois : +${d0}, +${d0+1}, +${d0+2}…`; }
+    else if (t === 4){ const a = RI(10,40), x = RI(3,9), y = RI(1, x-1); terms = [a]; for (let k=0;k<5;k++) terms.push(terms[k] + (k%2 ? -y : x)); ans = terms[5] + (5%2 ? -y : x); e = `On alterne +${x} et −${y}.`; terms = terms.slice(0,6); }
+    else if (t === 5){ const n0 = RI(1,6); terms = [0,1,2,3,4].map(k => (n0+k)**2); ans = (n0+5)**2; e = `Ce sont les carrés : ${n0}², ${n0+1}², ${n0+2}²…`; }
+    else if (t === 6){ const a = RI(1,5), b = RI(1,6); terms = [a, b]; while (terms.length < 6) terms.push(terms[terms.length-1] + terms[terms.length-2]); ans = terms[5] + terms[4]; e = "Chaque nombre est la somme des deux précédents."; }
+    else if (t === 7){ const a = RI(1,10), d = RI(2,6), b = RI(20,40), f = RI(1,4); terms = []; for (let k=0;k<6;k++) terms.push(k%2 ? b - f*Math.floor(k/2) : a + d*(k/2)); ans = a + d*3; e = `Deux suites mêlées : ${a}, ${a+d}, ${a+2*d}… (+${d}) et ${b}, ${b-f}… (−${f}).`; }
+    else { const a = RI(1,6); terms = [a]; for (let k=0;k<4;k++) terms.push(terms[k]*2 + 1); ans = terms[4]*2 + 1; e = "On multiplie par 2 puis on ajoute 1."; }
+    const spread = Math.max(3, Math.round(Math.abs(ans)*0.15));
+    return { cat:'Suite logique', q:`Quel nombre complète la suite ?\n${terms.join('  ·  ')}  ·  ?`, c:[ans, ...near(ans, spread)].map(String), e };
+  },
+  calcul(){
+    const t = RI(1,5);
+    if (t === 1){ const a = RI(12,49), b = RI(3,9), ans = a*b; return { cat:'Calcul mental', q:`${a} × ${b} = ?`, c:[ans, ans+b, ans-b, ans+10].map(String), e:`${a} × ${b} = ${ans}.` }; }
+    if (t === 2){ const p = PICK([10,15,20,25,30,40,50,75]), base = RI(2,30)*20, ans = base*p/100; return { cat:'Calcul mental', q:`Combien font ${p} % de ${base} ?`, c:[ans, ...near(ans, Math.max(3, Math.round(ans*0.3)))].map(String), e:`${base} × ${p} / 100 = ${ans}.` }; }
+    if (t === 3){ const b = RI(3,12), ans = RI(4,25), a = b*ans; return { cat:'Calcul mental', q:`${a} ÷ ${b} = ?`, c:[ans, ...near(ans, 3, 1)].map(String), e:`${b} × ${ans} = ${a}.` }; }
+    if (t === 4){ const h = RI(1,4), m = PICK([15,20,30,45,50]), ans = h*60 + m; return { cat:'Conversion', q:`${h} h ${m} min, ça fait combien de minutes ?`, c:[ans, h*100+m, ans-60, ans+10].map(String), e:`${h} × 60 + ${m} = ${ans} minutes.` }; }
+    const a = RI(120,950), b = RI(35,480), plus = Math.random() < .5 || b > a; const ans = plus ? a + b : a - b;
+    return { cat:'Calcul mental', q:`${a} ${plus ? '+' : '−'} ${b} = ?`, c:[ans, ans+10, ans-10, ans+100].map(String), e:`Résultat : ${ans}.` };
+  },
+  pb(){
+    const t = RI(1,4);
+    if (t === 1){ const v = PICK([30,60,90,120]), tm = v === 90 ? PICK([10,20,40]) : v === 30 ? PICK([10,20,30,40]) : PICK([5,10,15,20,30,45]); const d = v*tm/60;
+      return { cat:'Problème', q:`Un engin roule à ${v} km/h. Combien de minutes lui faut-il pour parcourir ${fr(d)} km ?`, c:[tm, ...near(tm, 6, 1)].map(x => x + ' min'), e:`${v} km/h = ${fr(v/60)} km par minute → ${fr(d)} ÷ ${fr(v/60)} = ${tm} min.` }; }
+    if (t === 2){ const q = PICK([250,500,1000]), k = RI(2,12), V = q*k;
+      return { cat:'Problème', q:`Une citerne de ${V.toLocaleString('fr-FR')} L est vidée par une lance qui débite ${q} L/min. Combien de temps faut-il ?`, c:[k, ...near(k, 3, 1)].map(x => x + ' min'), e:`${V} ÷ ${q} = ${k} minutes.` }; }
+    if (t === 3){ const per = PICK([3,4,6]), n = RI(3,9), tot = per*n;
+      return { cat:'Problème', q:`${tot} sapeurs-pompiers sont répartis en équipages de ${per}. Combien d'équipages ?`, c:[n, ...near(n, 2, 1)].map(String), e:`${tot} ÷ ${per} = ${n}.` }; }
+    const start = RI(6,20), dur = PICK([45,75,90,105,135]); const endMin = start*60 + RI(0,3)*15 + dur; const sh = Math.floor((endMin - dur)/60), sm = (endMin - dur)%60;
+    const fmt = x => `${Math.floor(x/60)} h ${pad(x%60)}`;
+    return { cat:'Problème', q:`Une intervention commence à ${sh} h ${pad(sm)} et dure ${dur} min. À quelle heure se termine-t-elle ?`, c:[fmt(endMin), fmt(endMin+15), fmt(endMin-15), fmt(endMin+60)], e:`${sh} h ${pad(sm)} + ${Math.floor(dur/60)} h ${pad(dur%60)} = ${fmt(endMin)}.` };
+  },
+  lettres(){
+    const step = RI(2,4), start = RI(0, 25 - 5*step); const L = i => String.fromCharCode(65 + i);
+    const terms = [0,1,2,3].map(k => L(start + k*step)); const ans = start + 4*step;
+    const wrong = [ans-1, ans+1, ans+2].filter(x => x >= 0 && x < 26 && x !== ans); while (wrong.length < 3) wrong.push((ans + wrong.length + 3) % 26);
+    return { cat:'Suite de lettres', q:`Quelle lettre complète la suite ?\n${terms.join('  ·  ')}  ·  ?`, c:[L(ans), ...wrong.map(L)], e:`On avance de ${step} lettres à chaque fois.` };
+  }
+};
+function psyQuestion(){ const k = PICK(['suite','suite','suite','calcul','calcul','pb','pb','lettres']); const q = PSY_GEN[k](); const uniq = [...new Set(q.c)]; while (uniq.length < 4) uniq.push(String(+uniq[0] + uniq.length*7)); q.c = uniq.slice(0,4); return q; }
+function runPsy(){
+  const N = 15, LIMIT = 6*60, qs = Array.from({length:N}, psyQuestion);
+  let i = 0, score = 0, t0 = performance.now(), iv = 0, done = false;
+  openOv('Tests psychotechniques', '', () => clearInterval(iv));
+  const tick = () => { const left = LIMIT - (performance.now()-t0)/1000; $('ov-extra').textContent = '⏱ ' + fmtClock(left); if (left <= 0) end(true); };
+  iv = setInterval(tick, 500); tick();
+  function show(){
+    const q = qs[i], order = shuffle(q.c.map((c,k) => ({c,k})));
+    $('ov-body').innerHTML = `<div class="prog"><div style="width:${i/N*100}%"></div></div>
+      <div class="row small faint" style="justify-content:space-between;margin-bottom:8px"><span>Question ${i+1} / ${N}</span><span>${score} bonne${score>1?'s':''} réponse${score>1?'s':''}</span></div>
+      <span class="tag info qtheme">🧩 ${esc(q.cat)}</span>
+      <div class="qtext" style="white-space:pre-line">${esc(q.q)}</div>
+      <div id="ps-c">${order.map(o => `<button class="choice" data-k="${o.k}">${esc(o.c)}</button>`).join('')}</div><div id="ps-e"></div>`;
+    $('ps-c').onclick = e => {
+      const b = e.target.closest('.choice'); if (!b || $('ps-c').dataset.d) return; $('ps-c').dataset.d = 1;
+      const ok = +b.dataset.k === 0; if (ok) score++;
+      $('ps-c').querySelectorAll('.choice').forEach(x => { const k = +x.dataset.k; x.classList.add(k === 0 ? 'good' : x === b ? 'bad' : 'dimmed'); });
+      vibrate(ok ? 20 : [50,30,50]);
+      $('ps-e').innerHTML = `<div class="expl"><b class="${ok?'g':'b'}">${ok ? 'Bonne réponse ✔' : 'Raté ✗'}</b> ${esc(q.e)}</div><button class="btn primary block" id="ps-n" style="margin-top:12px;height:50px">${i+1 < N ? 'Suivante' : 'Voir mon score'}</button>`;
+      $('ps-n').onclick = () => { i++; i < N ? show() : end(false); };
+    };
+  }
+  function end(timeout){
+    if (done) return; done = true; clearInterval(iv);
+    const dur = Math.min(LIMIT, Math.round((performance.now()-t0)/1000));
+    (S.quiz.psy = S.quiz.psy || []).push({ date:todayStr(), score, n:N, dur }); save();
+    const bestP = Math.max(...S.quiz.psy.map(x => x.score));
+    $('ov-extra').textContent = '';
+    $('ov-body').innerHTML = `${timeout ? '<div class="warnbox" style="text-align:center">⏱ Temps écoulé</div>' : ''}<div class="note20">${score}<small>/${N}</small></div>
+      <p style="text-align:center;font-weight:700">${score >= 13 ? 'Excellent 🧠' : score >= 10 ? 'Bien joué 👍' : 'Continue, ça se travaille 💪'}</p>
+      <p class="muted small" style="text-align:center">${fmtSec(dur)} · record : ${bestP}/${N}</p>
+      <div class="note"><b>Astuce :</b> le jour des tests, ne bloque jamais sur une question. Passe, et reviens-y à la fin s'il reste du temps.</div>
+      <div class="btns"><button class="btn" id="ps-again">Nouvelle série</button><button class="btn primary" id="ps-x">Fermer</button></div>`;
+    $('ps-again').onclick = runPsy; $('ps-x').onclick = closeOv;
+  }
+  show();
+}
+
+/* =========================================================
+   CARTES DE RÉVISION (flashcards)
+   ========================================================= */
+function runCards(){
+  const st = S.quiz.st, day = todayStr();
+  const due = QS.filter(q => st[q.id] && st[q.id].due && st[q.id].due <= day);
+  const weak = QS.filter(q => st[q.id] && st[q.id].box < 2 && !due.includes(q));
+  const fresh = shuffle(QS.filter(q => !st[q.id]));
+  const ids = [...shuffle(due), ...shuffle(weak), ...fresh].slice(0, 20).map(q => q.id);
+  let i = 0, known = 0;
+  openOv('Cartes de révision', '');
+  const show = () => {
+    if (i >= ids.length){ $('ov-extra').textContent = ''; $('ov-body').innerHTML = `<div style="text-align:center;font-size:54px;margin-top:20px">🃏</div><h2 style="text-align:center">${known} / ${ids.length} connues</h2><p class="muted" style="text-align:center">Les cartes « à revoir » reviendront dans tes prochains quiz.</p><div class="btns"><button class="btn" id="cd-again">Encore 20 cartes</button><button class="btn primary" id="cd-x">Fermer</button></div>`; $('cd-again').onclick = runCards; $('cd-x').onclick = closeOv; return; }
+    const q = QBY[ids[i]], th = THEMES[q.t] || {n:q.t, e:''};
+    $('ov-extra').textContent = `${i+1} / ${ids.length}`;
+    $('ov-body').innerHTML = `<div class="prog"><div style="width:${i/ids.length*100}%"></div></div>
+      <div class="card" style="min-height:300px;display:flex;flex-direction:column;margin-top:10px">
+        <span class="tag red" style="align-self:flex-start">${th.e} ${esc(th.n)}</span>
+        <div class="qtext" style="margin-top:14px">${esc(q.q)}</div>
+        <div id="cd-a" hidden><div class="hr"></div><div style="font-weight:700;color:var(--ok);font-size:17px">${esc(q.c[0])}</div>${q.e ? `<div class="muted small" style="margin-top:6px">${esc(q.e)}</div>` : ''}</div>
+        <div style="flex:1"></div>
+      </div>
+      <button class="btn primary block" id="cd-show" style="height:54px">Retourner la carte</button>
+      <div class="btns" id="cd-btns" hidden><button class="btn" id="cd-ko" style="color:var(--accent)">✗ À revoir</button><button class="btn ok" id="cd-ok">✓ Je savais</button></div>
+      <p class="faint small" style="text-align:center;margin-top:10px">Réponds dans ta tête, puis retourne la carte et sois honnête.</p>`;
+    $('cd-show').onclick = () => { $('cd-a').hidden = false; $('cd-show').hidden = true; $('cd-btns').hidden = false; };
+    $('cd-ok').onclick = () => { recordAnswer(q.id, true); known++; save(); i++; show(); };
+    $('cd-ko').onclick = () => { recordAnswer(q.id, false); save(); i++; show(); };
+  };
+  show();
+}
+
+/* =========================================================
+   DÉFI MORT SUBITE (15 s par question, une erreur et c'est fini)
+   ========================================================= */
+function runSurvival(){
+  const PER = 15; let streak = 0, raf = 0, t0 = 0, over = false;
+  const used = new Set();
+  openOv('Mort subite', '', () => cancelAnimationFrame(raf));
+  const next = () => {
+    const pool = QS.filter(q => !used.has(q.id)); const q = pool[Math.floor(Math.random()*pool.length)]; used.add(q.id);
+    const th = THEMES[q.t] || {n:q.t, e:''}, order = shuffle(q.c.map((c,k) => ({c,k})));
+    $('ov-extra').textContent = `🔥 ${streak}`;
+    $('ov-body').innerHTML = `<div class="prog"><div id="sv-bar" style="width:100%;transition:none"></div></div>
+      <span class="tag red qtheme">${th.e} ${esc(th.n)}</span><div class="qtext">${esc(q.q)}</div>
+      <div id="sv-c">${order.map(o => `<button class="choice" data-k="${o.k}">${esc(o.c)}</button>`).join('')}</div>`;
+    t0 = performance.now(); over = false;
+    const tick = () => { if (over) return; const left = PER - (performance.now()-t0)/1000; $('sv-bar').style.width = clamp(left/PER,0,1)*100 + '%'; if (left <= 0){ lose(q, null); return; } raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    $('sv-c').onclick = e => { const b = e.target.closest('.choice'); if (!b || over) return; const ok = +b.dataset.k === 0; recordAnswer(q.id, ok); save();
+      if (ok){ over = true; cancelAnimationFrame(raf); streak++; vibrate(20); b.classList.add('good'); setTimeout(next, 350); }
+      else lose(q, b); };
+  };
+  const lose = (q, b) => {
+    over = true; cancelAnimationFrame(raf); beepEnd();
+    if (b) b.classList.add('bad');
+    const prev = S.quiz.survie || 0, rec = streak > prev; if (rec) S.quiz.survie = streak; save();
+    $('ov-extra').textContent = '';
+    setTimeout(() => {
+      $('ov-body').innerHTML = `<div style="text-align:center;font-size:54px;margin-top:16px">${rec ? '🏆' : '💥'}</div><div class="note20">${streak}</div>
+        <p style="text-align:center;font-weight:700">${rec ? 'Nouveau record !' : `Record : ${prev}`}</p>
+        <div class="card"><div class="muted small">${b ? 'Raté sur' : 'Temps écoulé sur'} :</div><b>${esc(q.q)}</b><div style="color:var(--ok);margin-top:4px">→ ${esc(q.c[0])}</div>${q.e ? `<div class="faint small" style="margin-top:4px">${esc(q.e)}</div>` : ''}</div>
+        <div class="btns"><button class="btn" id="sv-x">Fermer</button><button class="btn primary" id="sv-again">Rejouer</button></div>`;
+      $('sv-again').onclick = runSurvival; $('sv-x').onclick = closeOv;
+    }, b ? 700 : 100);
+  };
+  next();
+}
+
+/* =========================================================
+   EXPORT AGENDA (.ics)
+   ========================================================= */
+function agendaSheet(){
+  openSheet(`<h3>Ajouter mes séances à mon agenda</h3>
+    <p class="muted small">Crée un fichier avec toutes tes séances jusqu'au jour J. Ouvre-le sur ton téléphone : ton agenda te propose de les ajouter, avec un rappel avant chaque séance.</p>
+    <div class="f2"><div class="field"><label>Heure des séances</label><input type="time" id="ag-h" value="18:00"></div>
+    <div class="field"><label>Rappel</label><select id="ag-r"><option value="15">15 min avant</option><option value="30" selected>30 min avant</option><option value="60">1 h avant</option><option value="0">Pas de rappel</option></select></div></div>
+    <div class="note small">Le détail de chaque séance est celui calculé aujourd'hui. Après tes tests, les charges changent : l'appli a toujours la version à jour.</div>
+    <button class="btn primary block" data-x="ok">Créer le fichier agenda</button>`, el => {
+      el.querySelector('[data-x=ok]').onclick = () => {
+        const [hh, mm] = (el.querySelector('#ag-h').value || '18:00').split(':').map(Number);
+        const rem = +el.querySelector('#ag-r').value;
+        const T = S.train, t = todayStr();
+        const icsEsc = x => String(x).replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\n/g,'\\n');
+        const fold = line => { const out = []; let s = line; while (s.length > 60){ out.push(s.slice(0,60)); s = ' ' + s.slice(60); } out.push(s); return out.join('\r\n'); };
+        const stamp = new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d+Z$/,'Z');
+        const lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Objectif BSPP//FR','CALSCALE:GREGORIAN','METHOD:PUBLISH','X-WR-CALNAME:Objectif BSPP'];
+        let n = 0;
+        for (let s = t; s <= T.exam; s = addD(s,1)){
+          const x = buildSession(s);
+          if (!['train','test','exam'].includes(x.kind)) continue;
+          if (sessionStatus(s).st === 'ok') continue; // déjà faite
+          const d = s.replace(/-/g,'');
+          const start = `${d}T${pad(hh)}${pad(mm)}00`;
+          const durMin = x.kind === 'train' ? 60 : 90;
+          const desc = x.blocks.filter(b => b.cls === 'main').map(b => b.h + ' : ' + b.items.join(' / ')).join('\n') + '\n\nDétail à jour dans l\'appli Objectif BSPP.';
+          lines.push('BEGIN:VEVENT', `UID:bspp-${d}@objectif-bspp`, `DTSTAMP:${stamp}`, `DTSTART:${start}`, `DURATION:PT${durMin}M`,
+            fold(`SUMMARY:${icsEsc((x.kind === 'exam' ? '🔥 ' : x.kind === 'test' ? '⏱️ ' : '💪 ') + 'BSPP · ' + x.title)}`), fold(`DESCRIPTION:${icsEsc(desc)}`));
+          if (rem) lines.push('BEGIN:VALARM','ACTION:DISPLAY',`DESCRIPTION:${icsEsc('Séance : ' + x.title)}`,`TRIGGER:-PT${rem}M`,'END:VALARM');
+          lines.push('END:VEVENT'); n++;
+        }
+        lines.push('END:VCALENDAR');
+        const blob = new Blob([lines.join('\r\n')], { type:'text/calendar;charset=utf-8' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'objectif-bspp-seances.ics'; document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        closeSheet(); toast(`${n} séances exportées dans le fichier agenda`);
+      };
+    });
+}
+
+/* =========================================================
+   SAC DU JOUR J
+   ========================================================= */
+const BAG = [
+  ['convoc', "Convocation (papier ou sur ton téléphone)"],
+  ['id', "Pièce d'identité"],
+  ['sport', "Tenue de sport + une tenue de rechange"],
+  ['shoes', "Les baskets avec lesquelles tu t'es entraîné"],
+  ['swim', "Maillot de bain et serviette (bonnet et lunettes si la piscine les demande) — pour l'agrément"],
+  ['water', "Gourde d'eau"],
+  ['snack', "Collation : banane, compote, barre de céréales"],
+  ['outfit', "Tenue correcte pour l'entretien"],
+  ['pen', "Un stylo"],
+  ['oral', "Tes idées clés pour l'oral relues (onglet Oral)"],
+  ['phone', "Téléphone chargé + batterie"],
+  ['sleep', "Nuit complète la veille, réveil réglé avec de la marge"]
+];
+function bagCard(){
+  const B = S.dossier.bag = S.dossier.bag || {};
+  const n = BAG.filter(([k]) => B[k]).length;
+  return `<div class="sec-title"><h3>Mon sac pour les épreuves</h3><span>${n}/${BAG.length}</span></div>
+    <div class="card tight">${BAG.map(([k,t]) => `<div class="item ${B[k]?'done':''}"><button class="chk ${B[k]?'on':''}" data-act="bag" data-id="${k}" aria-label="Cocher">${ICON_CHECK}</button><div class="grow" data-act="bag" data-id="${k}"><div class="t" style="font-weight:600">${esc(t)}</div></div></div>`).join('')}</div>
+    ${n ? '<button class="btn sm ghost block" data-act="bag-reset" style="margin-top:-4px">Tout décocher (pour une autre épreuve)</button>' : ''}`;
+}
+
+/* =========================================================
+   MA SEMAINE (carte sur l'écran Aujourd'hui)
+   ========================================================= */
+function weekCard(){
+  const t = todayStr(), mon = mondayOf(t);
+  let planned = 0, done = 0, quiz = 0;
+  const cells = [];
+  for (let i=0;i<7;i++){
+    const s = addD(mon, i), { sess, st } = sessionStatus(s);
+    const isTrain = st !== 'rest' && sess.kind !== 'none';
+    if (isTrain){ planned++; if (st === 'ok') done++; }
+    const qd = S.quiz.days[s] && S.quiz.days[s].done; if (qd) quiz++;
+    const ic = !isTrain ? '·' : st === 'ok' ? '✅' : st === 'miss' ? '✗' : sess.ico;
+    cells.push(`<div class="wd ${s===t?'today':''} ${!isTrain?'rest':''}"><span>${DOW[pd(s).getDay()]}</span><b>${pd(s).getDate()}</b><i>${ic}</i>${qd ? '<span class="st ok"></span>' : ''}</div>`);
+  }
+  return `<div class="sec-title"><h3>Ma semaine</h3><span>${done}/${planned} séances · ${quiz}/7 quiz</span></div><div class="week">${cells.join('')}</div>`;
+}
 
 /* =========================================================
    Réglages

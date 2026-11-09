@@ -299,6 +299,7 @@ a{color:var(--accent)}
 .bdg-btn{position:relative;font-size:20px}
 .bdg-btn span{position:absolute;top:3px;right:2px;min-width:17px;height:17px;border-radius:9px;background:var(--accent);color:#fff;font:700 10.5px/17px Figtree,sans-serif;padding:0 4px}
 .tipcard{background:var(--warn-soft);border-color:transparent}
+.phase{display:inline-block;padding:7px 18px;border-radius:999px;color:#fff;font:800 16px/1.2 "Bricolage Grotesque",sans-serif;letter-spacing:.08em;background:var(--faint);min-width:120px;text-align:center}
 .preset{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:8px 0}
 .expl{background:var(--s2);border-radius:16px;padding:12px 14px;margin-top:6px;font-size:14.5px}
 .expl b.g{color:var(--ok)} .expl b.b{color:var(--accent)}
@@ -528,7 +529,7 @@ function releaseWake(){ try{ wakeLock && wakeLock.release(); }catch(e){} wakeLoc
    Son (bips)
    ========================================================= */
 let AC = null;
-function audio(){ try{ if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); }catch(e){} return AC; }
+function audio(){ try{ if (navigator.audioSession) navigator.audioSession.type = S.prefs.loud === false ? 'ambient' : 'playback'; }catch(e){} try{ if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); }catch(e){} return AC; }
 function beep(freq=880, dur=0.12, when=0, vol=0.35){
   const ac = audio(); if (!ac) return;
   const t = ac.currentTime + when;
@@ -819,6 +820,7 @@ function buildSession(s){
   const make = type => {
   const blocks = [];
   let title = '', ico = '🏃', cls = 'run', dur = '';
+  let run = null, bip = false;
 
   if (type === 'vma'){ // VMA courte
     title = 'Course — VMA courte'; ico = '⚡'; dur = '≈ 50 min';
@@ -827,14 +829,17 @@ function buildSession(s){
     if (phase === 'fondation'){
       const reps = dl(8 + Math.min(4, w));
       main.push(`2 séries de ${reps} × 30 s vite / 30 s trot`, `En 30 s, couvre ${d30(1.0)} m (≈ ${kmh(1.0)} km/h)`, `3 min de trot entre les 2 séries`);
+      run = { title:`2 × ${reps} × 30/30`, steps:[RS.warm(), ...RS.intervals({ sets:2, reps, on:30, off:30, kmhOn:V*1.0 }), RS.cool()] };
     } else if (phase === 'developpement'){
-      if (w % 2 === 0){ const ser = dl(2 + (progressX(s) > 0.42 ? 1 : 0)); main.push(`${ser} série${ser>1?'s':''} de 10 × 30 s vite / 30 s trot`, `En 30 s, couvre ${d30(1.05)} m (≈ ${kmh(1.05)} km/h)`, `3 min de trot entre les séries`); }
-      else { const reps = dl(12); main.push(`2 séries de ${reps} × 15 s très vite / 15 s trot`, `En 15 s, couvre ${d15(1.12)} m`, `3 min de trot entre les séries`); }
+      if (w % 2 === 0){ const ser = dl(2 + (progressX(s) > 0.42 ? 1 : 0)); main.push(`${ser} série${ser>1?'s':''} de 10 × 30 s vite / 30 s trot`, `En 30 s, couvre ${d30(1.05)} m (≈ ${kmh(1.05)} km/h)`, `3 min de trot entre les séries`); run = { title:`${ser} × 10 × 30/30`, steps:[RS.warm(), ...RS.intervals({ sets:ser, reps:10, on:30, off:30, kmhOn:V*1.05 }), RS.cool()] }; }
+      else { const reps = dl(12); main.push(`2 séries de ${reps} × 15 s très vite / 15 s trot`, `En 15 s, couvre ${d15(1.12)} m`, `3 min de trot entre les séries`); run = { title:`2 × ${reps} × 15/15`, steps:[RS.warm(), ...RS.intervals({ sets:2, reps, on:15, off:15, kmhOn:V*1.12 }), RS.cool()] }; }
     } else if (phase === 'specifique'){
       const P1 = Math.min(Math.floor(P)+1, G.ll+1), r = dl(5 + (w % 3));
       main.push(`Navettes de 20 m au bip : ${r} × 1 min au palier ${P1} (${String(P2V(P1)).replace('.',',')} km/h), 1 min de marche entre chaque — Outils › Bip Luc Léger`, `Puis 8 × 30/30 : ${d30(1.1)} m en 30 s`);
+      bip = true; run = { title:'8 × 30/30 (après les navettes)', steps:[...RS.intervals({ reps:8, on:30, off:30, kmhOn:V*1.1 }), RS.cool()] };
     } else { // affûtage
       main.push(`6 × 30 s vite / 30 s trot : ${d30(1.0)} m en 30 s`, `3 × 1 min de navettes au palier ${Math.floor(G.ll)} (pour garder le rythme des virages)`);
+      bip = true; run = { title:'6 × 30/30', steps:[RS.warm(), ...RS.intervals({ reps:6, on:30, off:30, kmhOn:V*1.0 })] };
     }
     blocks.push({h:'Corps de séance', cls:'main', items:main});
     const extra = [gtg(phase === 'affutage' ? 2 : 3)];
@@ -870,14 +875,18 @@ function buildSession(s){
     if (phase === 'fondation'){
       const tot = dl(25 + 2*Math.min(w, 5));
       main.push(`Footing de ${tot} min à allure confortable (${pace(0.7)})`, `Dedans : 6 × 1 min un peu vite (${kmh(0.9)} km/h, ${dmin(0.9,1)} m) / 1 min lent`);
+      const easy = Math.max(120, Math.round((tot*60 - 11*60)/2));
+      run = { title:`Footing ${tot} min dont 6 × 1 min`, steps:[RS.warm(), RS.steady(easy, V*0.7), ...RS.intervals({ reps:6, on:60, off:60, kmhOn:V*0.9, kmhOff:V*0.7 }), RS.steady(easy, V*0.7), RS.cool()] };
     } else if (phase === 'developpement'){
-      if (w % 2) main.push(`${dl(5)} × 3 min à 90 % VMA : ${dmin(0.9,3)} m en 3 min, récup 1 min 30 en trottinant`);
-      else main.push(`${dl(4)} × 4 min à 85–90 % VMA : ${dmin(0.87,4)} m en 4 min, récup 2 min`);
+      if (w % 2){ main.push(`${dl(5)} × 3 min à 90 % VMA : ${dmin(0.9,3)} m en 3 min, récup 1 min 30 en trottinant`); run = { title:`${dl(5)} × 3 min`, steps:[RS.warm(), ...RS.intervals({ reps:dl(5), on:180, off:90, kmhOn:V*0.9 }), RS.cool()] }; }
+      else { main.push(`${dl(4)} × 4 min à 85–90 % VMA : ${dmin(0.87,4)} m en 4 min, récup 2 min`); run = { title:`${dl(4)} × 4 min`, steps:[RS.warm(), ...RS.intervals({ reps:dl(4), on:240, off:120, kmhOn:V*0.87 }), RS.cool()] }; }
     } else if (phase === 'specifique'){
       const Pi = Math.max(3, Math.floor(P)), Pa = Math.max(1, Pi-2);
       main.push(`Luc Léger fractionné au bip : ${dl(3)} × (paliers ${Pa} → ${Pi} enchaînés, ≈ 3 min), récup 2 min 30`, `Puis 2 × 2 min au palier ${Math.min(Pi+1, G.ll)}, récup 2 min`);
+      bip = true;
     } else {
       main.push(`20 min de footing facile`, `4 lignes droites de 80 m en accélérant`);
+      run = { title:'Footing 20 min', steps:[RS.steady(20*60, V*0.68)] };
     }
     blocks.push({h:'Corps de séance', cls:'main', items:main});
     blocks.push({h:'Complément', items:[gtg(2), `Gainage : planche 3 × ${phase==='fondation'?40:60} s + planche latérale 2 × 30 s par côté`]});
@@ -911,10 +920,11 @@ function buildSession(s){
     const min = phase === 'affutage' ? 25 : dl(30 + Math.min(20, 2*w));
     dur = `≈ ${min + 10} min`;
     blocks.push({h:'Séance', cls:'main', items:[`${min} min de footing à allure conversation (${pace(0.68)}, ≈ ${kmh(0.68)} km/h)`, `Finis par 5 lignes droites de 80 m en accélérant progressivement`]});
+    run = { title:`Footing ${min} min`, steps:[RS.steady(min*60, V*0.68)] };
     blocks.push({h:'Mobilité', items:["10 min : hanches, chevilles, épaules, dos", "Suspension passive à la barre 2 × 30 s (décompresse le dos, renforce la prise)"]});
   }
 
-  return { title, ico, cls, dur, blocks };
+  return { title, ico, cls, dur, blocks, run, bip };
   };
   let out;
   if (type === 'combo'){ // course, puis tractions en volume, puis Killy sur jambes fatiguées
@@ -927,7 +937,7 @@ function buildSession(s){
       { ...pick(b, 'Killy (chaise)'), h:'3. Killy, jambes déjà fatiguées comme le jour J' },
       { h:'Gainage', items:[`Planche : 3 × ${phase==='fondation'?40:60} s`, `Planche latérale : 2 × 30 s par côté`] },
       { h:'Retour au calme', cls:'soft', items:COOL }
-    ].filter(Boolean) };
+    ].filter(Boolean), run: a.run, bip: a.bip };
   } else out = make(type);
   if (deload) out.blocks.unshift({h:'Semaine allégée', cls:'soft', items:["Volume réduit d'environ 30 % cette semaine : c'est voulu, ton corps assimile le travail des 3 dernières semaines. Test de contrôle en fin de semaine."]});
   return { ...base, kind:'train', ...out };
@@ -964,7 +974,9 @@ function sessionCard(s, opts={}){
     const log = S.train.log[s];
     if (st === 'ok') h += `<div class="done-banner">${ICON_CHECK.replace('<svg','<svg style="width:20px;height:20px"')}<div class="grow">Séance faite${log && log.feel ? ` · ressenti ${['','😫','😕','🙂','😀','🔥'][log.feel]}` : ''}${log && log.note ? `<div class="small" style="font-weight:500;color:var(--text)">${esc(log.note)}</div>` : ''}</div><button class="btn sm ghost" data-act="undo" data-d="${s}">Annuler</button></div>`;
     else if (s <= todayStr() || opts.allowFuture){
-      h += `<div class="btns" style="margin-top:14px">`;
+      if (sess.run) h += `<button class="btn block" data-act="run" data-d="${s}" style="margin-top:14px;height:52px;background:var(--info-soft);color:var(--info);border-color:transparent;white-space:normal">⏱️ Chrono + GPS : ${esc(sess.run.title)}</button>`;
+      if (sess.bip) h += `<button class="btn block" data-act="bip" style="margin-top:8px">📣 Bip Luc Léger pour les navettes</button>`;
+      h += `<div class="btns" style="margin-top:${sess.run || sess.bip ? 8 : 14}px">`;
       if (sess.test || sess.kind === 'exam') h += `<button class="btn" data-act="sim">⏱️ Lancer la simulation</button><button class="btn primary" data-act="results" data-d="${s}">Saisir mes résultats</button>`;
       else h += `<button class="btn primary block" data-act="done" data-d="${s}">${ICON_CHECK.replace('<svg','<svg style="width:18px;height:18px"')} J'ai fait la séance</button>`;
       h += `</div>`;
@@ -1145,6 +1157,7 @@ function trainTools(){
   const T = S.train;
   return `<div class="card tight">
     <button class="tool" data-act="sim"><div class="ic">🏁</div><div class="grow"><b>Simulation jour J</b><div class="muted small">Luc Léger → 15 min → tractions → 15 min → Killy, résultats enregistrés</div></div>${ICON_CHEV}</button>
+    <button class="tool" data-act="freerun"><div class="ic">⏱️</div><div class="grow"><b>Chrono de course + GPS</b><div class="muted small">Fractionné ou footing : bips, voix, vitesse et allure en direct</div></div>${ICON_CHEV}</button>
     <button class="tool" data-act="bip"><div class="ic">📣</div><div class="grow"><b>Bip Luc Léger</b><div class="muted small">Test complet ou navettes à un palier fixe</div></div>${ICON_CHEV}</button>
     <button class="tool" data-act="killy"><div class="ic">🪑</div><div class="grow"><b>Chrono Killy</b><div class="muted small">Chrono avec bip toutes les 30 s</div></div>${ICON_CHEV}</button>
     <button class="tool" data-act="timer"><div class="ic">⏲️</div><div class="grow"><b>Minuteur EMOM / récup</b><div class="muted small">Bip chaque minute, ou compte à rebours entre les séries</div></div>${ICON_CHEV}</button>
@@ -1432,7 +1445,9 @@ function trainClick(e){
   else if (a === 'day'){ daySheet(b.dataset.d); }
   else if (a === 'wk'){ planWeekOffset += +b.dataset.v; renderTrain(); }
   else if (a === 'sim'){ closeSheet(); simTool(); }
-  else if (a === 'bip') bipTool();
+  else if (a === 'bip'){ closeSheet(); bipTool(); }
+  else if (a === 'run'){ const ss = buildSession(b.dataset.d); closeSheet(); if (ss.run) runTool(ss.run, b.dataset.d); }
+  else if (a === 'freerun') freeRunSheet();
   else if (a === 'killy') killyTool();
   else if (a === 'count') countTool();
   else if (a === 'timer') timerTool();
@@ -2166,17 +2181,216 @@ function weekCard(){
   return `<div class="sec-title"><h3>Ma semaine</h3><span>${done}/${planned} séances · ${quiz}/7 quiz</span></div><div class="week">${cells.join('')}</div>`;
 }
 
+
+/* =========================================================
+   CHRONO DE COURSE + GPS (vitesse, allure, distance en direct)
+   ========================================================= */
+// Étapes d'une séance de course
+const RS = {
+  warm: (d=600) => ({ k:'warm', d, t:'Échauffement', sub:'Footing très lent, gammes, 3 accélérations' }),
+  cool: (d=300) => ({ k:'cool', d, t:'Retour au calme', sub:'Trot ou marche, puis étirements' }),
+  steady: (d, kmh, t='Footing', sub='Allure conversation') => ({ k:'steady', d, t, sub, kmh }),
+  intervals({ sets=1, reps, on, off, between=180, kmhOn, kmhOff=null }){
+    const st = [];
+    for (let s=1; s<=sets; s++){
+      for (let r=1; r<=reps; r++){
+        st.push({ k:'on', d:on, t:'VITE', kmh:kmhOn, dist: r5(kmhOn/3.6*on), set:s, sets, rep:r, reps });
+        if (r < reps) st.push({ k:'off', d:off, t: off >= 60 ? 'RÉCUP' : 'TROT', kmh:kmhOff, set:s, sets, rep:r, reps, sub: off >= 60 ? 'Trottine doucement' : 'Trottine' });
+      }
+      if (s < sets) st.push({ k:'rest', d:between, t:'PAUSE', sub:`Trot léger, puis série ${s+1}` });
+    }
+    return st;
+  }
+};
+const fmtPace = kmh => { if (!kmh || kmh < 3) return '—'; const m = 60/kmh, mm = Math.floor(m), ss = Math.round((m-mm)*60); return `${mm}'${pad(ss === 60 ? 0 : ss)}`; };
+const haversine = (la1, lo1, la2, lo2) => { const R = 6371000, r = x => x*Math.PI/180; const a = Math.sin(r(la2-la1)/2)**2 + Math.cos(r(la1))*Math.cos(r(la2))*Math.sin(r(lo2-lo1)/2)**2; return 2*R*Math.asin(Math.sqrt(a)); };
+function say(txt){ try{ if (S.prefs.voice === false || !('speechSynthesis' in window)) return; speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(txt); u.lang = 'fr-FR'; u.rate = 1.05; speechSynthesis.speak(u); }catch(e){} }
+
+function runTool(run, ds){
+  const steps = run.steps, cum = [0];
+  steps.forEach(s => cum.push(cum[cum.length-1] + s.d));
+  const total = cum[cum.length-1];
+  let state = 'idle', acc = 0, resumeAt = 0, iv = 0, idx = -1, lastCount = -1, warned = false;
+  let watchId = null, lastFix = null, spd = null, spdAt = 0, totalDist = 0, stepDist = 0, gpsMsg = 'Recherche du GPS…', gpsOk = false;
+  const reps = [];
+  const onVis = () => { if (!document.hidden && state === 'run') keepAwake(); };
+  const cleanup = () => { clearInterval(iv); if (watchId != null) try{ navigator.geolocation.clearWatch(watchId); }catch(e){} watchId = null; releaseWake(); try{ speechSynthesis.cancel(); }catch(e){} document.removeEventListener('visibilitychange', onVis); };
+  openOv(run.title || 'Chrono de course', `
+    <div class="prog" style="height:6px;margin-top:0"><div id="rn-tot" style="width:0"></div></div>
+    <div style="text-align:center;margin-top:10px"><span class="phase" id="rn-phase">PRÊT</span></div>
+    <div class="lbl" id="rn-sub" style="margin-top:6px">${esc(run.title || '')}</div>
+    <div class="timer" id="rn-t">${fmtClock(steps[0] ? steps[0].d : 0)}</div>
+    <div class="lbl" id="rn-rep">&nbsp;</div>
+    <div class="prog"><div id="rn-bar" style="width:0"></div></div>
+    <div class="bigstat"><div><b id="rn-spd">—</b><span>km/h</span></div><div><b id="rn-pace">—</b><span>min/km</span></div><div><b id="rn-dist">0</b><span id="rn-distl">m parcourus</span></div></div>
+    <div id="rn-target" class="card" style="padding:12px 14px;margin-bottom:10px"></div>
+    <div id="rn-reps" class="chips" style="margin-bottom:12px"></div>
+    <div class="btns"><button class="btn primary" id="rn-go" style="height:56px;font-size:17px">Démarrer</button><button class="btn" id="rn-skip" style="height:56px">Étape suivante ⏭</button></div>
+    <button class="btn ghost block" id="rn-end" style="margin-top:8px">Terminer la séance</button>
+    <div class="row small" style="justify-content:space-between;margin-top:10px"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rn-voice" style="width:auto" ${S.prefs.voice === false ? '' : 'checked'}> Annonces vocales</label><span class="faint" id="rn-gps">Recherche du GPS…</span></div>
+    <p class="faint small" style="margin-top:12px">Laisse l'écran allumé et l'appli ouverte pendant la séance (sur iPhone, le chrono s'arrête si l'écran se verrouille). Strava peut enregistrer en même temps. La vitesse GPS est une indication à quelques mètres près, plus fiable en ligne droite et à découvert.</p>`, cleanup);
+  document.addEventListener('visibilitychange', onVis);
+  $('rn-voice').onchange = e => { S.prefs.voice = e.target.checked; save(); };
+
+  // GPS
+  if ('geolocation' in navigator){
+    try{
+      watchId = navigator.geolocation.watchPosition(p => {
+        const c = p.coords, t = p.timestamp || Date.now();
+        if (c.accuracy > 35){ gpsMsg = `GPS imprécis (±${Math.round(c.accuracy)} m)`; gpsOk = false; return; }
+        gpsOk = true; gpsMsg = `GPS ✓ ±${Math.round(c.accuracy)} m`;
+        let v = (typeof c.speed === 'number' && !isNaN(c.speed) && c.speed >= 0) ? c.speed : null;
+        if (lastFix){
+          const d = haversine(lastFix.la, lastFix.lo, c.latitude, c.longitude), dt = (t - lastFix.t)/1000;
+          if (dt >= 0.5){
+            const vc = d/dt;
+            if (vc < 11){ // ignore les sauts GPS (> 40 km/h)
+              const moving = (v != null ? v : vc) > 0.7;
+              if (moving && state === 'run'){ totalDist += d; stepDist += d; }
+              if (v == null) v = moving ? vc : 0;
+            }
+            lastFix = { la:c.latitude, lo:c.longitude, t };
+          }
+        } else lastFix = { la:c.latitude, lo:c.longitude, t };
+        if (v != null){ spd = spd == null ? v : spd*0.5 + v*0.5; spdAt = Date.now(); }
+      }, err => { gpsOk = false; gpsMsg = err.code === 1 ? 'GPS refusé : autorise la localisation' : 'GPS indisponible'; }, { enableHighAccuracy:true, maximumAge:0, timeout:20000 });
+    }catch(e){ gpsMsg = 'GPS indisponible'; }
+  } else gpsMsg = 'GPS non disponible sur cet appareil';
+
+  const elapsed = () => (acc + (state === 'run' ? Date.now() - resumeAt : 0)) / 1000;
+  const stepAt = e => { for (let i=0; i<steps.length; i++) if (e < cum[i+1]) return i; return steps.length; };
+  const kmhNow = () => (spd != null && Date.now() - spdAt < 6000) ? spd*3.6 : null;
+  const colors = { on:'var(--accent)', off:'var(--info)', rest:'var(--info)', warm:'var(--ok)', cool:'var(--ok)', steady:'var(--ok)' };
+
+  const announce = (st, prev) => {
+    if (st.k === 'on'){ beepPalier(); say(st.rep === 1 && st.set > 1 ? `Série ${st.set}. Vite !` : 'Vite !'); }
+    else if (st.k === 'off'){ beep(520,.3); const r = reps[reps.length-1]; say(r && gpsOk ? `${st.t === 'TROT' ? 'Trot' : 'Récup'}. ${Math.round(r.dist)} mètres` : (st.t === 'TROT' ? 'Trot' : 'Récup')); }
+    else if (st.k === 'rest'){ beepEnd(); const r = reps[reps.length-1]; say(`Pause, ${fmtSec(st.d).replace('min','minutes')}.${r && gpsOk ? ` Dernière : ${Math.round(r.dist)} mètres.` : ''}`); }
+    else if (st.k === 'warm'){ beep(660,.15); say('Échauffement'); }
+    else if (st.k === 'cool'){ beepEnd(); say('Retour au calme. Bien joué'); }
+    else { beep(660,.15); say(st.t); }
+  };
+  const closeStep = i => {
+    const st = steps[i]; if (!st) return;
+    if (st.k === 'on') reps.push({ set:st.set, rep:st.rep, dist:stepDist, target:st.dist, d:st.d });
+  };
+  const draw = () => {
+    const e = elapsed(), i = stepAt(e);
+    if (i >= steps.length){ finish(); return; }
+    if (i !== idx){
+      if (idx >= 0) closeStep(idx);
+      stepDist = 0;
+      for (let j = Math.max(idx+1, 0); j < i; j++) closeStep(j); // étapes sautées (écran verrouillé)
+      idx = i; stepDist = 0; lastCount = -1; warned = false;
+      if (state === 'run') announce(steps[i]);
+    }
+    const st = steps[i], inStep = e - cum[i], left = st.d - inStep;
+    const ph = $('rn-phase'); ph.textContent = st.t; ph.style.background = colors[st.k];
+    $('rn-sub').textContent = st.sub || (st.k === 'on' ? `Objectif ${st.dist} m` : '');
+    $('rn-t').textContent = fmtClock(Math.ceil(left));
+    $('rn-rep').textContent = st.reps ? `Fraction ${st.rep}/${st.reps}${st.sets > 1 ? ` · Série ${st.set}/${st.sets}` : ''}` : `Étape ${i+1}/${steps.length}`;
+    $('rn-bar').style.width = clamp(inStep/st.d,0,1)*100 + '%'; $('rn-bar').style.background = colors[st.k];
+    $('rn-tot').style.width = clamp(e/total,0,1)*100 + '%';
+    if (state === 'run' && ['on','off','rest'].includes(st.k)){ const c = Math.ceil(left); if (c <= 3 && c >= 1 && c !== lastCount){ lastCount = c; beep(760,.07); } }
+    const k = kmhNow();
+    $('rn-spd').textContent = k == null ? '—' : k.toFixed(1).replace('.',',');
+    $('rn-pace').textContent = k == null ? '—' : fmtPace(k);
+    $('rn-dist').textContent = st.k === 'on' ? Math.round(stepDist) : totalDist >= 1000 ? (totalDist/1000).toFixed(2).replace('.',',') : Math.round(totalDist);
+    $('rn-distl').textContent = st.k === 'on' ? 'm dans la fraction' : totalDist >= 1000 ? 'km au total' : 'm au total';
+    $('rn-gps').textContent = gpsMsg;
+    // Objectif
+    let tg = '';
+    if (st.k === 'on'){
+      const exp = st.dist * clamp(inStep/st.d, 0, 1), diff = stepDist - exp;
+      const status = !gpsOk || inStep < 4 ? '' : diff >= -3 ? `<b style="color:var(--ok)">${diff >= 0 ? '+' : ''}${Math.round(diff)} m · dans le rythme ✓</b>` : `<b style="color:var(--accent)">${Math.round(diff)} m · accélère !</b>`;
+      tg = `<div class="row" style="justify-content:space-between"><span>Objectif <b>${st.dist} m</b> en ${st.d} s</span><span class="faint">${String(st.kmh.toFixed(1)).replace('.',',')} km/h · ${fmtPace(st.kmh)}/km</span></div>
+        <div class="bar" style="margin-top:8px"><div style="width:${clamp(stepDist/st.dist,0,1.2)/1.2*100}%"></div><span class="exp" style="left:${100/1.2}%"></span></div><div class="small" style="margin-top:6px">${status || '&nbsp;'}</div>`;
+    } else if (st.kmh){
+      const msg = k == null ? '' : k > st.kmh + 0.8 ? '<b style="color:var(--warn)">Un peu vite, ralentis</b>' : k < st.kmh - 0.8 ? '<b style="color:var(--info)">Tu peux accélérer un peu</b>' : '<b style="color:var(--ok)">Bonne allure ✓</b>';
+      tg = `<div class="row" style="justify-content:space-between"><span>Allure cible <b>${st.kmh.toFixed(1).replace('.',',')} km/h</b></span><span class="faint">${fmtPace(st.kmh)}/km</span></div><div class="small" style="margin-top:6px">${msg || '&nbsp;'}</div>`;
+    } else {
+      const nx = steps[i+1];
+      tg = `<div class="small muted">${nx ? `Ensuite : <b>${esc(nx.t)}</b>${nx.k === 'on' ? ` · ${nx.dist} m en ${nx.d} s` : ` · ${fmtSec(nx.d)}`}` : 'Dernière étape'}</div>`;
+    }
+    $('rn-target').innerHTML = tg;
+    $('rn-reps').innerHTML = reps.slice(-12).map(r => { const ok = r.dist >= r.target*0.95; return `<span class="tag ${!gpsOk && !r.dist ? '' : ok ? 'ok' : 'red'}">${r.sets > 1 || steps.some(s => s.set > 1) ? `S${r.set} ` : ''}#${r.rep} · ${Math.round(r.dist)} m</span>`; }).join('');
+  };
+  const finish = () => {
+    if (state === 'done') return;
+    const eEnd = Math.min(total, elapsed());
+    if (idx >= 0 && idx < steps.length && state !== 'idle') closeStep(idx);
+    state = 'done'; clearInterval(iv); beepEnd(); say('Séance terminée. Bravo !');
+    if (watchId != null) try{ navigator.geolocation.clearWatch(watchId); }catch(e){} watchId = null; releaseWake();
+    const e = eEnd;
+    const withD = reps.filter(r => r.dist > 0);
+    const avg = withD.length ? withD.reduce((a,r) => a + r.dist, 0)/withD.length : 0;
+    const tgt = reps.length ? reps[0].target : 0;
+    const hit = withD.filter(r => r.dist >= r.target*0.95).length;
+    $('ov-body').innerHTML = `<div style="text-align:center;font-size:52px;margin-top:14px">🏁</div><h2 style="text-align:center">Séance terminée</h2>
+      <div class="bigstat"><div><b>${fmtClock(e)}</b><span>durée</span></div><div><b>${(totalDist/1000).toFixed(2).replace('.',',')}</b><span>km (GPS)</span></div><div><b>${e > 0 && totalDist > 0 ? (totalDist/e*3.6).toFixed(1).replace('.',',') : '—'}</b><span>km/h moyen</span></div></div>
+      ${reps.length ? `<div class="card"><div class="row" style="justify-content:space-between"><b>Fractions</b><span class="faint small">objectif ${tgt} m</span></div>
+        <div class="muted small" style="margin:4px 0 8px">${withD.length ? `Moyenne ${Math.round(avg)} m · ${hit}/${withD.length} dans l'objectif` : 'Pas de mesure GPS pendant les fractions'}</div>
+        <div class="chips">${reps.map(r => `<span class="tag ${r.dist >= r.target*0.95 ? 'ok' : r.dist ? 'red' : ''}">${r.sets > 1 || reps.some(x => x.set > 1) ? `S${r.set} ` : ''}#${r.rep} · ${Math.round(r.dist)} m</span>`).join('')}</div></div>` : ''}
+      ${ds && ds <= todayStr() && !(S.train.log[ds] && S.train.log[ds].done) ? `<button class="btn ok block" id="rn-val" style="height:52px">Valider la séance du ${fmtD(ds)}</button>` : ''}
+      <button class="btn block" id="rn-x" style="margin-top:8px">Fermer</button>`;
+    if ($('rn-val')) $('rn-val').onclick = () => {
+      S.train.log[ds] = { done:true, at:new Date().toISOString(), feel:3, note: reps.length && withD.length ? `Chrono : ${reps.length} fractions, moyenne ${Math.round(avg)} m (objectif ${tgt} m)` : `Chrono : ${fmtClock(e)}, ${(totalDist/1000).toFixed(2).replace('.',',')} km` };
+      save(); toast('Séance validée 💪'); closeOv();
+    };
+    $('rn-x').onclick = closeOv;
+  };
+  $('rn-go').onclick = () => {
+    if (state === 'idle' || state === 'pause'){
+      audio(); keepAwake();
+      if (state === 'idle'){ say("C'est parti"); }
+      state = 'run'; resumeAt = Date.now(); $('rn-go').textContent = 'Pause';
+      if (idx === -1){ idx = 0; announce(steps[0]); }
+      clearInterval(iv); iv = setInterval(draw, 200); draw();
+    } else if (state === 'run'){
+      acc += Date.now() - resumeAt; state = 'pause'; $('rn-go').textContent = 'Reprendre'; draw();
+    }
+  };
+  $('rn-skip').onclick = () => {
+    if (state === 'done') return;
+    const e = elapsed(), i = stepAt(e); if (i >= steps.length - 1){ finish(); return; }
+    acc = cum[i+1]*1000; resumeAt = Date.now(); if (state === 'idle'){ state = 'pause'; $('rn-go').textContent = 'Reprendre'; }
+    draw();
+  };
+  $('rn-end').onclick = () => { const b = $('rn-end'); if (b.dataset.c || state === 'idle'){ finish(); } else { b.dataset.c = 1; b.textContent = 'Appuie encore pour terminer'; setTimeout(() => { if (b.isConnected){ b.dataset.c = ''; b.textContent = 'Terminer la séance'; } }, 3000); } };
+  iv = setInterval(() => { if (state !== 'run') { const k = kmhNow(); if ($('rn-gps')) $('rn-gps').textContent = gpsMsg; if ($('rn-spd')){ $('rn-spd').textContent = k == null ? '—' : k.toFixed(1).replace('.',','); $('rn-pace').textContent = k == null ? '—' : fmtPace(k); } } }, 500);
+}
+function freeRunSheet(){
+  const V = P2V(workLevel('ll', todayStr()));
+  openSheet(`<h3>Chrono de course + GPS</h3><p class="muted small">Règle ton fractionné : bips, annonces vocales, vitesse et distance en direct.</p>
+    <div class="f3"><div class="field"><label>Fractions</label><input type="number" id="fr-r" value="10" min="1" max="50"></div><div class="field"><label>Séries</label><input type="number" id="fr-s" value="2" min="1" max="10"></div><div class="field"><label>Vitesse (km/h)</label><input type="number" id="fr-v" value="${(V).toFixed(1)}" step="0.1" min="6" max="25"></div></div>
+    <div class="f3"><div class="field"><label>Effort (s)</label><input type="number" id="fr-on" value="30" min="5" max="1200"></div><div class="field"><label>Récup (s)</label><input type="number" id="fr-off" value="30" min="5" max="600"></div><div class="field"><label>Entre séries (s)</label><input type="number" id="fr-b" value="180" min="0" max="900"></div></div>
+    <div class="f2"><div class="field"><label>Échauffement (min)</label><input type="number" id="fr-w" value="10" min="0" max="40"></div><div class="field"><label>Retour au calme (min)</label><input type="number" id="fr-c" value="5" min="0" max="30"></div></div>
+    <button class="btn primary block" data-x="go">Ouvrir le chrono</button>
+    <button class="btn block" data-x="steady" style="margin-top:8px">Footing simple (chrono + allure)</button>`, el => {
+      const n = id => +el.querySelector(id).value;
+      el.querySelector('[data-x=go]').onclick = () => {
+        const reps = clamp(n('#fr-r')||10,1,50), sets = clamp(n('#fr-s')||1,1,10), kmh = clamp(n('#fr-v')||12,6,25), on = clamp(n('#fr-on')||30,5,1200), off = clamp(n('#fr-off')||30,5,600), b = clamp(n('#fr-b'),0,900), w = clamp(n('#fr-w'),0,40), c = clamp(n('#fr-c'),0,30);
+        const steps = [...(w ? [RS.warm(w*60)] : []), ...RS.intervals({ sets, reps, on, off, between:b || 60, kmhOn:kmh }), ...(c ? [RS.cool(c*60)] : [])];
+        closeSheet(); runTool({ title:`${sets > 1 ? sets + ' × ' : ''}${reps} × ${on}/${off}`, steps }, null);
+      };
+      el.querySelector('[data-x=steady]').onclick = () => { closeSheet(); runTool({ title:'Footing', steps:[RS.steady(60*60, +(V*0.68).toFixed(1), 'Footing', 'Termine quand tu veux avec « Terminer »')] }, null); };
+    });
+}
+
 /* =========================================================
    Réglages
    ========================================================= */
 $('btn-settings').addEventListener('click', () => {
   openSheet(`<h3>Réglages</h3>
     <div class="field"><label>Thème</label><div class="seg" id="st-th" style="margin:0">${[['auto','Auto'],['light','Clair'],['dark','Sombre']].map(([k,n]) => `<button data-v="${k}" class="${S.prefs.theme===k?'on':''}">${n}</button>`).join('')}</div></div>
+    <div class="field"><label>Son des bips</label><div class="seg" id="st-loud" style="margin:0"><button data-v="1" class="${S.prefs.loud === false ? '' : 'on'}">Même en silencieux</button><button data-v="0" class="${S.prefs.loud === false ? 'on' : ''}">Avec ma musique</button></div>
+      <p class="faint small" style="margin:6px 0 0">« Même en silencieux » : tu entends les bips même si ton iPhone est en mode silencieux, mais ta musique se met en pause. « Avec ma musique » : les bips se mélangent à ta musique, mais sont coupés en mode silencieux.</p></div>
     <div class="field"><label>Sauvegarde</label><div class="btns"><button class="btn" id="st-exp">Exporter mes données</button><button class="btn" id="st-imp">Importer</button></div><input type="file" id="st-file" accept="application/json,.json" hidden></div>
     <p class="faint small">Tes données restent sur ce téléphone. Exporte-les de temps en temps (ou avant de changer de téléphone).</p>
     <div class="hr"></div>
     <button class="btn block" id="st-reset" style="color:var(--accent)">Tout effacer et recommencer</button>
     <p class="faint small" style="margin-top:14px">Objectif BSPP · ${QS.length} questions · ${FICHES.length} fiches</p>`, el => {
+      el.querySelector('#st-loud').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; S.prefs.loud = b.dataset.v === '1'; save(); el.querySelectorAll('#st-loud button').forEach(x => x.classList.toggle('on', x === b)); };
       el.querySelector('#st-th').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; S.prefs.theme = b.dataset.v; save(); applyTheme(); el.querySelectorAll('#st-th button').forEach(x => x.classList.toggle('on', x === b)); };
       el.querySelector('#st-exp').onclick = () => {
         const blob = new Blob([JSON.stringify(S, null, 1)], { type:'application/json' });

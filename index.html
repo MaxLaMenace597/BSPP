@@ -829,17 +829,17 @@ function buildSession(s){
     if (phase === 'fondation'){
       const reps = dl(8 + Math.min(4, w));
       main.push(`2 séries de ${reps} × 30 s vite / 30 s trot`, `En 30 s, couvre ${d30(1.0)} m (≈ ${kmh(1.0)} km/h)`, `3 min de trot entre les 2 séries`);
-      run = { title:`2 × ${reps} × 30/30`, steps:[RS.warm(), ...RS.intervals({ sets:2, reps, on:30, off:30, kmhOn:V*1.0 }), RS.cool()] };
+      run = { title:`2 × ${reps} × 30/30`, steps:[...RS.warmup(V), ...RS.intervals({ sets:2, reps, on:30, off:30, kmhOn:V*1.0 }), RS.cool()] };
     } else if (phase === 'developpement'){
-      if (w % 2 === 0){ const ser = dl(2 + (progressX(s) > 0.42 ? 1 : 0)); main.push(`${ser} série${ser>1?'s':''} de 10 × 30 s vite / 30 s trot`, `En 30 s, couvre ${d30(1.05)} m (≈ ${kmh(1.05)} km/h)`, `3 min de trot entre les séries`); run = { title:`${ser} × 10 × 30/30`, steps:[RS.warm(), ...RS.intervals({ sets:ser, reps:10, on:30, off:30, kmhOn:V*1.05 }), RS.cool()] }; }
-      else { const reps = dl(12); main.push(`2 séries de ${reps} × 15 s très vite / 15 s trot`, `En 15 s, couvre ${d15(1.12)} m`, `3 min de trot entre les séries`); run = { title:`2 × ${reps} × 15/15`, steps:[RS.warm(), ...RS.intervals({ sets:2, reps, on:15, off:15, kmhOn:V*1.12 }), RS.cool()] }; }
+      if (w % 2 === 0){ const ser = dl(2 + (progressX(s) > 0.42 ? 1 : 0)); main.push(`${ser} série${ser>1?'s':''} de 10 × 30 s vite / 30 s trot`, `En 30 s, couvre ${d30(1.05)} m (≈ ${kmh(1.05)} km/h)`, `3 min de trot entre les séries`); run = { title:`${ser} × 10 × 30/30`, steps:[...RS.warmup(V), ...RS.intervals({ sets:ser, reps:10, on:30, off:30, kmhOn:V*1.05 }), RS.cool()] }; }
+      else { const reps = dl(12); main.push(`2 séries de ${reps} × 15 s très vite / 15 s trot`, `En 15 s, couvre ${d15(1.12)} m`, `3 min de trot entre les séries`); run = { title:`2 × ${reps} × 15/15`, steps:[...RS.warmup(V), ...RS.intervals({ sets:2, reps, on:15, off:15, kmhOn:V*1.12 }), RS.cool()] }; }
     } else if (phase === 'specifique'){
       const P1 = Math.min(Math.floor(P)+1, G.ll+1), r = dl(5 + (w % 3));
       main.push(`Navettes de 20 m au bip : ${r} × 1 min au palier ${P1} (${String(P2V(P1)).replace('.',',')} km/h), 1 min de marche entre chaque — Outils › Bip Luc Léger`, `Puis 8 × 30/30 : ${d30(1.1)} m en 30 s`);
       bip = true; run = { title:'8 × 30/30 (après les navettes)', steps:[...RS.intervals({ reps:8, on:30, off:30, kmhOn:V*1.1 }), RS.cool()] };
     } else { // affûtage
       main.push(`6 × 30 s vite / 30 s trot : ${d30(1.0)} m en 30 s`, `3 × 1 min de navettes au palier ${Math.floor(G.ll)} (pour garder le rythme des virages)`);
-      bip = true; run = { title:'6 × 30/30', steps:[RS.warm(), ...RS.intervals({ reps:6, on:30, off:30, kmhOn:V*1.0 })] };
+      bip = true; run = { title:'6 × 30/30', steps:[...RS.warmup(V), ...RS.intervals({ reps:6, on:30, off:30, kmhOn:V*1.0 })] };
     }
     blocks.push({h:'Corps de séance', cls:'main', items:main});
     const extra = [gtg(phase === 'affutage' ? 2 : 3)];
@@ -876,10 +876,10 @@ function buildSession(s){
       const tot = dl(25 + 2*Math.min(w, 5));
       main.push(`Footing de ${tot} min à allure confortable (${pace(0.7)})`, `Dedans : 6 × 1 min un peu vite (${kmh(0.9)} km/h, ${dmin(0.9,1)} m) / 1 min lent`);
       const easy = Math.max(120, Math.round((tot*60 - 11*60)/2));
-      run = { title:`Footing ${tot} min dont 6 × 1 min`, steps:[RS.warm(), RS.steady(easy, V*0.7), ...RS.intervals({ reps:6, on:60, off:60, kmhOn:V*0.9, kmhOff:V*0.7 }), RS.steady(easy, V*0.7), RS.cool()] };
+      run = { title:`Footing ${tot} min dont 6 × 1 min`, steps:[...RS.warmup(V), RS.steady(easy, V*0.7), ...RS.intervals({ reps:6, on:60, off:60, kmhOn:V*0.9, kmhOff:V*0.7 }), RS.steady(easy, V*0.7), RS.cool()] };
     } else if (phase === 'developpement'){
-      if (w % 2){ main.push(`${dl(5)} × 3 min à 90 % VMA : ${dmin(0.9,3)} m en 3 min, récup 1 min 30 en trottinant`); run = { title:`${dl(5)} × 3 min`, steps:[RS.warm(), ...RS.intervals({ reps:dl(5), on:180, off:90, kmhOn:V*0.9 }), RS.cool()] }; }
-      else { main.push(`${dl(4)} × 4 min à 85–90 % VMA : ${dmin(0.87,4)} m en 4 min, récup 2 min`); run = { title:`${dl(4)} × 4 min`, steps:[RS.warm(), ...RS.intervals({ reps:dl(4), on:240, off:120, kmhOn:V*0.87 }), RS.cool()] }; }
+      if (w % 2){ main.push(`${dl(5)} × 3 min à 90 % VMA : ${dmin(0.9,3)} m en 3 min, récup 1 min 30 en trottinant`); run = { title:`${dl(5)} × 3 min`, steps:[...RS.warmup(V), ...RS.intervals({ reps:dl(5), on:180, off:90, kmhOn:V*0.9 }), RS.cool()] }; }
+      else { main.push(`${dl(4)} × 4 min à 85–90 % VMA : ${dmin(0.87,4)} m en 4 min, récup 2 min`); run = { title:`${dl(4)} × 4 min`, steps:[...RS.warmup(V), ...RS.intervals({ reps:dl(4), on:240, off:120, kmhOn:V*0.87 }), RS.cool()] }; }
     } else if (phase === 'specifique'){
       const Pi = Math.max(3, Math.floor(P)), Pa = Math.max(1, Pi-2);
       main.push(`Luc Léger fractionné au bip : ${dl(3)} × (paliers ${Pa} → ${Pi} enchaînés, ≈ 3 min), récup 2 min 30`, `Puis 2 × 2 min au palier ${Math.min(Pi+1, G.ll)}, récup 2 min`);
@@ -2188,6 +2188,18 @@ function weekCard(){
 // Étapes d'une séance de course
 const RS = {
   warm: (d=600) => ({ k:'warm', d, t:'Échauffement', sub:'Footing très lent, gammes, 3 accélérations' }),
+  // Échauffement guidé : footing, gammes, 3 accélérations, 1 min pour se préparer
+  warmup(V){
+    const st = [
+      { k:'warm', d:600, t:'ÉCHAUFFEMENT', sub:'Footing très lent : tu dois pouvoir parler', kmh: V ? +(V*0.6).toFixed(1) : null, grp:'warm' },
+      { k:'warm', d:180, t:'GAMMES', sub:'Montées de genoux, talons-fesses, pas chassés (2 × 20 m chacun)', grp:'warm' }
+    ];
+    for (let i=1; i<=3; i++){
+      st.push({ k:'acc', d:15, t:'ACCÉLÉRATION', sub:`Accélération progressive ${i}/3 (environ 60 m)`, grp:'warm' });
+      st.push({ k:'warm', d:i < 3 ? 45 : 60, t: i < 3 ? 'MARCHE' : 'PRÉPARE-TOI', sub: i < 3 ? 'Reviens en marchant ou en trottinant' : "C'est bientôt parti !", grp:'warm' });
+    }
+    return st;
+  },
   cool: (d=300) => ({ k:'cool', d, t:'Retour au calme', sub:'Trot ou marche, puis étirements' }),
   steady: (d, kmh, t='Footing', sub='Allure conversation') => ({ k:'steady', d, t, sub, kmh }),
   intervals({ sets=1, reps, on, off, between=180, kmhOn, kmhOff=null }){
@@ -2230,6 +2242,26 @@ function runTool(run, ds){
     <div class="row small" style="justify-content:space-between;margin-top:10px"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rn-voice" style="width:auto" ${S.prefs.voice === false ? '' : 'checked'}> Annonces vocales</label><span class="faint" id="rn-gps">Recherche du GPS…</span></div>
     <p class="faint small" style="margin-top:12px">Laisse l'écran allumé et l'appli ouverte pendant la séance (sur iPhone, le chrono s'arrête si l'écran se verrouille). Strava peut enregistrer en même temps. La vitesse GPS est une indication à quelques mètres près, plus fiable en ligne droite et à découvert.</p>`, cleanup);
   document.addEventListener('visibilitychange', onVis);
+  // Aperçu : ce que le chrono va enchaîner
+  (() => {
+    const groups = [];
+    for (const st of steps){
+      const g = st.grp === 'warm' || st.k === 'warm' || st.k === 'acc' ? 'warm' : ['on','off','rest'].includes(st.k) ? 'int' : st.k;
+      const last = groups[groups.length-1];
+      if (last && last.g === g) { last.d += st.d; last.steps.push(st); } else groups.push({ g, d:st.d, steps:[st] });
+    }
+    const li = groups.map(G => {
+      if (G.g === 'warm') return G.steps.length > 1 ? `<li><b>Échauffement guidé</b> · ${fmtSec(G.d)} <span class="faint">(footing lent, gammes, 3 accélérations)</span></li>` : `<li><b>Échauffement</b> · ${fmtSec(G.d)}</li>`;
+      if (G.g === 'int'){ const on = G.steps.find(x => x.k === 'on'), off = G.steps.find(x => x.k === 'off'), ps = G.steps.find(x => x.k === 'rest');
+        return `<li><b>${esc(run.title)}</b> · ${on.d} s vite (objectif <b>${on.dist} m</b>)${off ? ` / ${off.d} s ${off.t === 'TROT' ? 'trot' : 'récup'}` : ''}${ps ? ` · ${fmtSec(ps.d)} de pause entre les séries` : ''}</li>`; }
+      if (G.g === 'steady') return `<li><b>${esc(G.steps[0].t)}</b> · ${fmtSec(G.d)}${G.steps[0].kmh ? ` à ${String(G.steps[0].kmh.toFixed ? G.steps[0].kmh.toFixed(1) : G.steps[0].kmh).replace('.',',')} km/h` : ''}</li>`;
+      if (G.g === 'cool') return `<li><b>Retour au calme</b> · ${fmtSec(G.d)}</li>`;
+      return '';
+    }).join('');
+    $('rn-target').innerHTML = `<div class="small" style="font-weight:700;margin-bottom:4px">Au programme · ${fmtSec(total)}</div><ul style="margin:0;padding-left:18px;font-size:14px;line-height:1.5">${li}</ul>
+      <div class="faint small" style="margin-top:6px">Déjà échauffé ? « Étape suivante » passe à l'étape d'après.</div>`;
+    $('rn-sub').textContent = steps[0] && (steps[0].grp === 'warm' || steps[0].k === 'warm') ? "Appuie sur Démarrer : on commence par l'échauffement" : 'Appuie sur Démarrer';
+  })();
   $('rn-voice').onchange = e => { S.prefs.voice = e.target.checked; save(); };
 
   // GPS
@@ -2260,13 +2292,14 @@ function runTool(run, ds){
   const elapsed = () => (acc + (state === 'run' ? Date.now() - resumeAt : 0)) / 1000;
   const stepAt = e => { for (let i=0; i<steps.length; i++) if (e < cum[i+1]) return i; return steps.length; };
   const kmhNow = () => (spd != null && Date.now() - spdAt < 6000) ? spd*3.6 : null;
-  const colors = { on:'var(--accent)', off:'var(--info)', rest:'var(--info)', warm:'var(--ok)', cool:'var(--ok)', steady:'var(--ok)' };
+  const colors = { acc:'var(--accent-2)', on:'var(--accent)', off:'var(--info)', rest:'var(--info)', warm:'var(--ok)', cool:'var(--ok)', steady:'var(--ok)' };
 
   const announce = (st, prev) => {
     if (st.k === 'on'){ beepPalier(); say(st.rep === 1 && st.set > 1 ? `Série ${st.set}. Vite !` : 'Vite !'); }
     else if (st.k === 'off'){ beep(520,.3); const r = reps[reps.length-1]; say(r && gpsOk ? `${st.t === 'TROT' ? 'Trot' : 'Récup'}. ${Math.round(r.dist)} mètres` : (st.t === 'TROT' ? 'Trot' : 'Récup')); }
     else if (st.k === 'rest'){ beepEnd(); const r = reps[reps.length-1]; say(`Pause, ${fmtSec(st.d).replace('min','minutes')}.${r && gpsOk ? ` Dernière : ${Math.round(r.dist)} mètres.` : ''}`); }
-    else if (st.k === 'warm'){ beep(660,.15); say('Échauffement'); }
+    else if (st.k === 'acc'){ beep(880,.2); say('Accélère progressivement'); }
+    else if (st.k === 'warm'){ beep(660,.15); say(st.t === 'GAMMES' ? 'Gammes' : st.t === 'MARCHE' ? 'Marche' : st.t === 'PRÉPARE-TOI' ? 'Prépare-toi, ça commence dans une minute' : 'Échauffement, footing très lent'); }
     else if (st.k === 'cool'){ beepEnd(); say('Retour au calme. Bien joué'); }
     else { beep(660,.15); say(st.t); }
   };
@@ -2288,10 +2321,11 @@ function runTool(run, ds){
     const ph = $('rn-phase'); ph.textContent = st.t; ph.style.background = colors[st.k];
     $('rn-sub').textContent = st.sub || (st.k === 'on' ? `Objectif ${st.dist} m` : '');
     $('rn-t').textContent = fmtClock(Math.ceil(left));
-    $('rn-rep').textContent = st.reps ? `Fraction ${st.rep}/${st.reps}${st.sets > 1 ? ` · Série ${st.set}/${st.sets}` : ''}` : `Étape ${i+1}/${steps.length}`;
+    const wIdx = steps.filter(x => x.grp === 'warm'), wPos = wIdx.indexOf(st) + 1;
+    $('rn-rep').textContent = st.reps ? `Fraction ${st.rep}/${st.reps}${st.sets > 1 ? ` · Série ${st.set}/${st.sets}` : ''}` : st.grp === 'warm' ? `Échauffement · ${wPos}/${wIdx.length}` : st.k === 'cool' ? 'Dernière étape' : '';
     $('rn-bar').style.width = clamp(inStep/st.d,0,1)*100 + '%'; $('rn-bar').style.background = colors[st.k];
     $('rn-tot').style.width = clamp(e/total,0,1)*100 + '%';
-    if (state === 'run' && ['on','off','rest'].includes(st.k)){ const c = Math.ceil(left); if (c <= 3 && c >= 1 && c !== lastCount){ lastCount = c; beep(760,.07); } }
+    if (state === 'run' && ['on','off','rest','acc'].includes(st.k) || (state === 'run' && st.t === 'PRÉPARE-TOI')){ const c = Math.ceil(left); if (c <= 3 && c >= 1 && c !== lastCount){ lastCount = c; beep(760,.07); } }
     const k = kmhNow();
     $('rn-spd').textContent = k == null ? '—' : k.toFixed(1).replace('.',',');
     $('rn-pace').textContent = k == null ? '—' : fmtPace(k);

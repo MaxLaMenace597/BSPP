@@ -801,6 +801,7 @@ function buildSession(s){
   const dl = x => vf < 0.999 ? Math.max(1, Math.round(x*vf)) : x;
   const base = { phase, deload, w, dte, est, L };
   const ab = absenceOn(s);
+  if (ab && dte > 0){ const md = absMode(ab, s); if (md) return adaptedSession(ab, s, md, base); }
   if (ab && dte > 0){
     const r = ABS_R[ab.reason] || ABS_R.autre, med = ab.reason === 'operation' || ab.reason === 'blessure', R = repriseLen(ab);
     return { ...base, kind:'absence', absence:ab, title:`Absence · ${r.n}`, ico:r.e, cls:'rest', dur:'', blocks:[
@@ -1009,6 +1010,7 @@ function sessionStatus(s){
   const log = S.train.log[s]; const t = todayStr();
   const sess = buildSession(s);
   if (sess.kind === 'absence') return { sess, st:'excused' };
+  if (sess.adapted) return { sess, st: (S.train.log[s] && S.train.log[s].done) ? 'ok' : 'excused' };
   if (sess.kind === 'none' || sess.kind === 'rest') return { sess, st:'rest' };
   if (log && log.done) return { sess, st:'ok' };
   if (sess.test && S.train.tests.some(x => x.date === s)) return { sess, st:'ok' };
@@ -1030,10 +1032,9 @@ function sessionCard(s, opts={}){
         ${sess.phase && sess.kind !== 'none' ? `<div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap"><span class="tag" style="background:${PHASES[sess.phase].c}22;color:${PHASES[sess.phase].c}">${PHASES[sess.phase].n}</span>${sess.deload?'<span class="tag info">semaine allégée</span>':''}${sess.test?'<span class="tag warn">test</span>':''}</div>` : ''}
       </div>
     </div>`;
-  if (sess.est && (sess.kind === 'train')) h += `<div class="warnbox small" style="margin:12px 0 0">Charges <b>estimées</b> : saisis les résultats de ton évaluation de départ pour que le plan colle à ton vrai niveau.</div>`;
+  if (sess.est && sess.kind === 'train' && !sess.adapted) h += `<div class="warnbox small" style="margin:12px 0 0">Charges <b>estimées</b> : saisis les résultats de ton évaluation de départ pour que le plan colle à ton vrai niveau.</div>`;
   for (const b of sess.blocks) h += `<div class="block ${b.cls||''}"><h4>${esc(b.h)}</h4><ul>${b.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`;
-  if (L && sess.kind === 'train' && !opts.compact) h += `<div class="targets"><div class="tg"><b>P${fmtLL(Math.round(L.ll*4)/4)}</b><span>LL de travail</span></div><div class="tg"><b>${Math.round(L.tr)}</b><span>tractions réf.</span></div><div class="tg"><b>${fmtSec(r5(L.ki))}</b><span>chaise réf.</span></div></div>`;
-  if (sess.kind === 'absence') h += `<button class="btn sm block" data-act="abs-edit" data-id="${sess.absence.id}" style="margin-top:14px">Modifier ou annuler cette absence</button>`;
+  if (L && sess.kind === 'train' && !sess.adapted && !opts.compact) h += `<div class="targets"><div class="tg"><b>P${fmtLL(Math.round(L.ll*4)/4)}</b><span>LL de travail</span></div><div class="tg"><b>${Math.round(L.tr)}</b><span>tractions réf.</span></div><div class="tg"><b>${fmtSec(r5(L.ki))}</b><span>chaise réf.</span></div></div>`;
   if (sess.kind === 'train' || sess.kind === 'test' || sess.kind === 'exam'){
     const log = S.train.log[s];
     if (st === 'ok') h += `<div class="done-banner">${ICON_CHECK.replace('<svg','<svg style="width:20px;height:20px"')}<div class="grow">Séance faite${log && log.feel ? ` · ressenti ${['','😫','😕','🙂','😀','🔥'][log.feel]}` : ''}${log && log.note ? `<div class="small" style="font-weight:500;color:var(--text)">${esc(log.note)}</div>` : ''}</div><button class="btn sm ghost" data-act="undo" data-d="${s}">Annuler</button></div>`;
@@ -1046,9 +1047,14 @@ function sessionCard(s, opts={}){
       else h += `<button class="btn primary block" data-act="done" data-d="${s}">${ICON_CHECK.replace('<svg','<svg style="width:18px;height:18px"')} J'ai fait la séance</button>`;
       h += `</div>`;
       if (st === 'miss') h += `<div class="faint small" style="margin-top:8px;text-align:center">Séance passée non validée. Pas grave : on ne rattrape pas, on reprend le plan du jour.</div><button class="btn sm block" data-act="absence" data-d="${s}" style="margin-top:8px">Justifier cette absence (blessure, maladie…)</button>`;
-      else if (sess.kind === 'train' && s >= todayStr()) h += `<button class="btn sm ghost block" data-act="absence" data-d="${s}" style="margin-top:6px">Je ne peux pas m'entraîner ce jour-là</button>`;
+      else if (sess.kind === 'train' && !sess.adapted && s >= todayStr()) h += `<button class="btn sm ghost block" data-act="absence" data-d="${s}" style="margin-top:6px">Je ne peux pas m'entraîner ce jour-là</button>`;
     }
   }
+  if (sess.absence && !opts.compact){
+    const cur = sess.adapted ? sess.mode : 'repos';
+    h += `<div class="field" style="margin:16px 0 0"><label>${s < todayStr() ? 'Ce jour-là' : "Aujourd'hui"} je fais plutôt</label><div class="chips">${['haut','jambes','repos'].map(v => `<button class="chip ${cur===v?'on':''}" data-act="abs-day" data-id="${sess.absence.id}" data-d="${s}" data-v="${v}">${ADAPT[v].e} ${ADAPT[v].n}</button>`).join('')}</div></div>`;
+    h += `<button class="btn sm block" data-act="abs-edit" data-id="${sess.absence.id}" style="margin-top:10px">Modifier ou annuler cette absence</button>`;
+  } else if (sess.absence) h += `<button class="btn sm block" data-act="abs-edit" data-id="${sess.absence.id}" style="margin-top:14px">Modifier ou annuler cette absence</button>`;
   h += `</div>`;
   return h;
 }
@@ -1252,7 +1258,7 @@ function doneSheet(s){
   openSheet(`<h3>Séance validée 💪</h3><p class="muted small">${fmtDL(s)}</p>
     <div class="field"><label>Ressenti</label><div class="feel">${['😫','😕','🙂','😀','🔥'].map((e,i) => `<button data-f="${i+1}" class="${i===2?'on':''}">${e}</button>`).join('')}</div></div>
     <div class="field"><label>Note (facultatif)</label><input id="dn-note" placeholder="Ex. : 30/30 tenus, dernière série dure"></div>
-    <div class="field"><label>Tractions max faites aujourd'hui ? (facultatif)</label><input type="number" id="dn-tr" min="0" max="80" placeholder="Si tu as fait une série max"></div>
+    ${buildSession(s).adapted ? '<input type="hidden" id="dn-tr">' : `<div class="field"><label>Tractions max faites aujourd'hui ? (facultatif)</label><input type="number" id="dn-tr" min="0" max="80" placeholder="Si tu as fait une série max"></div>`}
     <button class="btn primary block" data-x="ok">Enregistrer</button>`, el => {
       el.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { feel = +b.dataset.f; el.querySelectorAll('[data-f]').forEach(x => x.classList.toggle('on', x === b)); });
       el.querySelector('[data-x=ok]').onclick = () => {
@@ -1519,6 +1525,7 @@ function trainClick(e){
   else if (a === 'absence'){ closeSheet(); absenceSheet({ from:b.dataset.d, to:b.dataset.d }); }
   else if (a === 'abs-new'){ closeSheet(); absenceSheet(); }
   else if (a === 'abs-edit'){ closeSheet(); absenceSheet({ id:b.dataset.id }); }
+  else if (a === 'abs-day'){ const ab = absences().find(x => x.id === b.dataset.id); if (ab){ ab.over = ab.over || {}; ab.over[b.dataset.d] = b.dataset.v; save(); const open = $('sheet').classList.contains('on'); closeSheet(); render(); if (open) daySheet(b.dataset.d); toast(`${ADAPT[b.dataset.v].e} ${ADAPT[b.dataset.v].n}`); } }
   else if (a === 'killy') killyTool();
   else if (a === 'count') countTool();
   else if (a === 'timer') timerTool();
@@ -2532,25 +2539,91 @@ function effWeeks(from, s){
 }
 const blockedTest = d => !!absenceOn(d) || (() => { const r = repriseInfo(d); return !!(r && r.k <= 6); })();
 
+
+/* ---- Séances adaptées pendant une absence (opération, blessure…) ---- */
+const ADAPT = {
+  repos:   { n:'Repos complet', e:'🛌', d:"Aucune séance, juste récupérer." },
+  haut:    { n:'Haut du corps (haltères)', e:'💪', d:"Assis ou allongé : dos, épaules, bras, prise. Les jambes ne bougent pas." },
+  jambes:  { n:'Jambes', e:'🦵', d:"Squats, fentes, chaise… sans sauter ni courir." },
+  alterne: { n:'Alterner haut / jambes', e:'🔁', d:"Un jour le haut du corps, le jour d'entraînement suivant les jambes." }
+};
+function absMode(ab, s){
+  if (ab.over && ab.over[s]) return ab.over[s] === 'repos' ? null : ab.over[s];
+  if (!ab.adapt || ab.adapt === 'repos' || isRest(s)) return null;
+  if (ab.adapt !== 'alterne') return ab.adapt;
+  let n = 0; for (let d = ab.from; d < s; d = addD(d, 1)) if (!isRest(d)) n++;
+  return n % 2 ? 'jambes' : 'haut';
+}
+function adaptedSession(ab, s, mode, base){
+  const k = dd(ab.from, s), sets = k < 3 ? 2 : 3, op = ab.reason === 'operation';
+  const L = base.L, kiHold = Math.max(20, r5(L.ki*0.5));
+  const caution = op
+    ? ["Uniquement avec le feu vert de ton chirurgien.", "Souffle à chaque répétition et ne bloque jamais ta respiration : rien qui pousse sur le bas-ventre.", "Arrête tout de suite en cas de douleur, de saignement ou de gonflement."]
+    : ["Seulement si ta blessure le permet : aucune douleur pendant les exercices.", "Arrête à la moindre douleur."];
+  let wo, title, ico;
+  if (mode === 'haut'){
+    title = 'Séance adaptée · Haut du corps'; ico = '💪';
+    wo = [
+      EX.timer("Cercles de bras vers l'avant", 20, 'Assis, grands cercles bras tendus', '🔄', { warm:true, auto:true }),
+      EX.timer("Cercles de bras vers l'arrière", 20, 'Assis, grands cercles bras tendus', '🔄', { warm:true, auto:true }),
+      EX.timer('Rotations de poignets', 20, 'Dans un sens puis dans l\'autre', '🔄', { warm:true, auto:true }),
+      EX.timer('Rotations des épaules', 20, 'Épaules vers l\'arrière, en grands cercles', '🔄', { warm:true, auto:true }),
+      EX.reps('Rowing haltère un bras (par bras)', sets, 12, 75, "Une main posée sur une chaise, dos droit, tire le coude vers la hanche : c'est le muscle des tractions", '🏋️'),
+      EX.reps('Développé épaules assis', sets, 10, 75, 'Assis dos droit, pousse les haltères au-dessus de la tête', '🏋️'),
+      EX.reps('Curl biceps assis', sets, 12, 60, 'Coudes collés au corps, descente lente', '💪'),
+      EX.reps('Pull-over allongé', sets, 12, 60, 'Sur le dos (lit, banc ou sol), un haltère à deux mains, bras presque tendus derrière la tête puis au-dessus de la poitrine', '🏋️'),
+      EX.reps('Élévations latérales assis', sets, 12, 60, "Bras légèrement fléchis, monte jusqu'à l'horizontale", '🏋️'),
+      EX.reps('Extension triceps assis', sets, 12, 60, 'Un haltère à deux mains derrière la tête, coudes vers le plafond', '💪'),
+      EX.hold('Tenue des haltères (prise)', sets, 40, 45, 'Assis, bras le long du corps, serre fort : ça muscle la prise pour les tractions', '🤲'),
+      ...stretchWo(['epaules', 'triceps'])
+    ];
+  } else {
+    title = 'Séance adaptée · Jambes'; ico = '🦵';
+    if (op) caution.splice(1, 0, "Les jambes sollicitent le bassin : attends l'accord de ton chirurgien avant de faire cette séance.");
+    wo = [
+      EX.timer('Rotations de chevilles', 30, 'Dans les deux sens', '🔄', { warm:true, auto:true }),
+      EX.timer('Cercles de genoux', 30, 'Mains sur les genoux, petits cercles', '🔄', { warm:true, auto:true }),
+      EX.reps('Squats lents à vide', 1, 10, 30, 'Pour chauffer les jambes', '🦵', { warm:true }),
+      EX.reps('Squat goblet (haltère contre la poitrine)', sets, 12, 75, 'Descente en 3 s, sans rebond. Sans haltère : au poids du corps', '🏋️'),
+      EX.reps('Fentes arrière alternées (par jambe)', sets, 10, 75, 'Grand pas en arrière, genou arrière près du sol, sans sauter', '🦵'),
+      EX.reps('Soulevé de terre jambes tendues (haltères)', sets, 12, 75, 'Dos droit, haltères le long des cuisses, plie aux hanches', '🏋️'),
+      EX.reps('Mollets debout', sets, 20, 45, 'Monte sur la pointe des pieds, lentement', '🦶'),
+      EX.hold('Killy (chaise)', 2, kiHold, 90, killyRule, '🪑', { ki:true }),
+      ...stretchWo(['quads', 'ischios', 'mollets'])
+    ];
+  }
+  const main = wo.filter(x => !x.warm && !x.cool).map(x => x.type === 'hold' ? `${x.name} : ${x.sets} × ${fmtSec(x.hold)}` : `${x.name} : ${x.sets} × ${x.reps}`);
+  const r = ABS_R[ab.reason] || ABS_R.autre;
+  return { ...base, kind:'train', adapted:true, mode, absence:ab, title, ico, cls:'str', dur:'≈ 35 min', woTitle: title.replace('Séance adaptée · ', ''), wo, blocks:[
+    { h:`${r.e} ${r.n} · séance adaptée`, cls:'soft', items:[`Ta séance normale est remplacée par une séance ${mode === 'haut' ? "du haut du corps, assis ou allongé, avec tes haltères" : "de jambes, sans sauter ni courir"}. Elle est facultative : si tu ne la fais pas, elle ne compte pas comme manquée.`] },
+    { h:'Précautions', items:caution },
+    { h:'Matériel', cls:'soft', items:["Une paire d'haltères : prends un poids avec lequel les 2 dernières répétitions sont dures mais propres", ...(k < 3 ? ["Premiers jours : 2 séries par exercice. Ça passe à 3 ensuite."] : [])] },
+    { h:'Exercices', cls:'main', items:main }
+  ]};
+}
 function absenceSheet(pref){
   const ex = pref && pref.id ? absences().find(a => a.id === pref.id) : null;
   const a = ex || { from:(pref && pref.from) || todayStr(), to:(pref && pref.to) || todayStr(), reason:'operation', note:'' };
-  let reason = a.reason;
+  let reason = a.reason, adapt = a.adapt || (ex ? 'repos' : 'haut');
   openSheet(`<h3>${ex ? "Modifier l'absence" : 'Déclarer une absence'}</h3>
     <p class="muted small">Les séances de ces jours ne compteront pas comme manquées. Au retour, le plan reprend en douceur.</p>
     <div class="field"><label>Motif</label><div class="chips" id="ab-r">${Object.entries(ABS_R).map(([k,v]) => `<button class="chip ${reason===k?'on':''}" data-v="${k}">${v.e} ${v.n}</button>`).join('')}</div></div>
     <div class="f2"><div class="field"><label>Du</label><input type="date" id="ab-f" value="${a.from}"></div><div class="field"><label>Au (inclus)</label><input type="date" id="ab-t" value="${a.to}"></div></div>
+    <div class="field" id="ab-adw"><label>Pendant ce temps, je peux m'entraîner un peu ?</label><div class="chips" id="ab-ad">${Object.entries(ADAPT).map(([k,v]) => `<button class="chip ${adapt===k?'on':''}" data-v="${k}">${v.e} ${v.n}</button>`).join('')}</div><p class="faint small" id="ab-add" style="margin:6px 0 0">${esc(ADAPT[adapt].d)}</p></div>
     <div class="field"><label>Note (facultatif)</label><input id="ab-n" value="${esc(a.note || '')}" placeholder="Ex. : opération, plâtre 1 semaine"></div>
     <div class="btns">${ex ? '<button class="btn" data-x="del" style="color:var(--accent)">Supprimer</button>' : ''}<button class="btn primary" data-x="ok">Enregistrer</button></div>`, el => {
-      el.querySelector('#ab-r').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; reason = b.dataset.v; el.querySelectorAll('#ab-r .chip').forEach(x => x.classList.toggle('on', x === b)); };
+      const syncAd = () => { el.querySelector('#ab-adw').hidden = reason === 'maladie'; };
+      el.querySelector('#ab-r').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; reason = b.dataset.v; el.querySelectorAll('#ab-r .chip').forEach(x => x.classList.toggle('on', x === b)); syncAd(); };
+      el.querySelector('#ab-ad').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; adapt = b.dataset.v; el.querySelectorAll('#ab-ad .chip').forEach(x => x.classList.toggle('on', x === b)); el.querySelector('#ab-add').textContent = ADAPT[adapt].d; };
+      syncAd();
       el.querySelector('[data-x=ok]').onclick = () => {
         const from = el.querySelector('#ab-f').value, to = el.querySelector('#ab-t').value;
         if (!from || !to || to < from){ toast('La date de fin doit être après la date de début'); return; }
-        const rec = { id: ex ? ex.id : 'a' + Date.now(), from, to, reason, note: el.querySelector('#ab-n').value.trim() };
+        const rec = { id: ex ? ex.id : 'a' + Date.now(), from, to, reason, note: el.querySelector('#ab-n').value.trim(), adapt: reason === 'maladie' ? 'repos' : adapt, over: ex ? (ex.over || {}) : {} };
         S.train.absences = absences().filter(x => x.id !== rec.id).concat(rec);
         _specialCache = null; save(); closeSheet(); render();
         const n = dd(from, to) + 1, R = repriseLen(rec);
-        toast(`Absence enregistrée (${n} jour${n>1?'s':''})${R ? ` · reprise en douceur sur ${R} jours` : ''}`);
+        toast(`Absence enregistrée (${n} jour${n>1?'s':''})${rec.adapt !== 'repos' ? ` · séances adaptées : ${ADAPT[rec.adapt].n.toLowerCase()}` : ''}${R ? ` · reprise en douceur sur ${R} jours` : ''}`);
       };
       const del = el.querySelector('[data-x=del]');
       if (del) del.onclick = () => { if (del.dataset.c){ S.train.absences = absences().filter(x => x.id !== ex.id); _specialCache = null; save(); closeSheet(); render(); toast('Absence supprimée'); } else { del.dataset.c = 1; del.textContent = 'Confirmer ?'; } };
@@ -2559,7 +2632,7 @@ function absenceSheet(pref){
 function absencesCard(){
   const list = absences().slice().sort((a,b) => b.from.localeCompare(a.from));
   return `<div class="sec-title"><h3>Absences justifiées</h3><button class="btn sm" data-act="abs-new">+ Déclarer</button></div>
-    ${list.length ? `<div class="card tight">${list.map(a => { const r = ABS_R[a.reason] || ABS_R.autre, n = dd(a.from, a.to) + 1; return `<div class="dayrow" data-act="abs-edit" data-id="${a.id}" style="cursor:pointer"><div style="font-size:24px;width:36px;text-align:center">${r.e}</div><div class="grow"><b>${r.n}${a.note ? ` · ${esc(a.note)}` : ''}</b><div class="faint small">${a.from === a.to ? fmtDL(a.from) : `du ${fmtD(a.from)} au ${fmtD(a.to)}`} · ${n} jour${n>1?'s':''}${repriseLen(a) ? ` · reprise ${repriseLen(a)} j` : ''}</div></div>${ICON_CHEV}</div>`; }).join('')}</div>`
+    ${list.length ? `<div class="card tight">${list.map(a => { const r = ABS_R[a.reason] || ABS_R.autre, n = dd(a.from, a.to) + 1; return `<div class="dayrow" data-act="abs-edit" data-id="${a.id}" style="cursor:pointer"><div style="font-size:24px;width:36px;text-align:center">${r.e}</div><div class="grow"><b>${r.n}${a.note ? ` · ${esc(a.note)}` : ''}</b><div class="faint small">${a.from === a.to ? fmtDL(a.from) : `du ${fmtD(a.from)} au ${fmtD(a.to)}`} · ${n} jour${n>1?'s':''}${a.adapt && a.adapt !== 'repos' ? ` · ${ADAPT[a.adapt].e} ${ADAPT[a.adapt].n.toLowerCase()}` : ''}${repriseLen(a) ? ` · reprise ${repriseLen(a)} j` : ''}</div></div>${ICON_CHEV}</div>`; }).join('')}</div>`
     : `<div class="card muted small">Opération, blessure, maladie… Déclare-la ici : ces jours ne compteront pas comme manqués et le plan reprendra en douceur.</div>`}`;
 }
 

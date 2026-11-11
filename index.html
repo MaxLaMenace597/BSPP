@@ -243,6 +243,7 @@ a{color:var(--accent)}
 .heat .ok{background:var(--ok)}
 .heat .miss{background:var(--accent);opacity:.55}
 .heat .fut{background:var(--s2);opacity:.5}
+.heat .exc{background:repeating-linear-gradient(45deg,var(--info) 0 2px,transparent 2px 4px);opacity:.7}
 .heat .td{outline:2px solid var(--text)}
 
 /* Tools */
@@ -683,15 +684,17 @@ function workLevel(k, s){
   // Niveau de référence pour calculer les charges : part du dernier test,
   // monte un peu chaque semaine qui suit (même sans nouveau test) et rattrape la trajectoire prévue.
   const cur = latest(k, s) ?? DEF[k], e = expected(k, s);
-  const ld = latestDate(k, s), wks = ld ? Math.max(0, dd(ld, s)) / 7 : Math.max(0, dd(S.train.start, s)) / 7;
+  const ld = latestDate(k, s), wks = effWeeks(ld || S.train.start, s); // ne compte que les séances faites (ou à venir)
   const prog = k === 'll' ? cur + 0.15*wks : cur * (1 + 0.025*wks);
-  let w = Math.max(prog, cur + Math.max(0, e - cur)*0.3);
+  // Part des séances réellement faites depuis le dernier test (1 = toutes faites) : moins tu en fais, moins ça monte
+  const calW = Math.max(0, dd(ld || S.train.start, s)) / 7, ratio = calW > 0.3 ? clamp(wks / calW, 0, 1) : 1;
+  let w = Math.max(prog, cur + Math.max(0, e - cur)*0.3*ratio);
   const cap = Math.max(e, k === 'll' ? cur + 0.75 : cur * 1.2);
   return Math.max(cur, Math.min(w, cap));
 }
 const dayType = s => ((S.train.week || WEEK_FOOT)[pd(s).getDay()]) || 'rest';
 const isRest = s => dayType(s) === 'rest';
-const isTestable = s => !['rest','foot'].includes(dayType(s)); // pas de test un jour de repos ou de foot
+const isTestable = s => !['rest','foot'].includes(dayType(s)) && !absenceOn(s); // pas de test un jour de repos, de foot ou d'absence
 function firstTrainingDay(from){ let s = from || S.train.start; for (let i=0;i<7;i++){ if (isTestable(s)) return s; s = addD(s,1); } return from || S.train.start; }
 // Jour de l'évaluation de départ : le jour du premier test saisi ; tant qu'aucun test n'est saisi,
 // elle « glisse » au prochain jour d'entraînement (aujourd'hui ou après) pour ne jamais être ratée.
@@ -713,7 +716,7 @@ function isDeload(w){
 }
 let _specialCache = null;
 function specialDays(){
-  const T = S.train, key = T.start + T.exam + JSON.stringify(T.week || {}) + '|' + initialTestDay();
+  const T = S.train, key = T.start + T.exam + JSON.stringify(T.week || {}) + JSON.stringify(T.absences || []) + '|' + initialTestDay();
   if (_specialCache && _specialCache.key === key) return _specialCache;
   const out = { key, test:{}, sim:null, first:initialTestDay() };
   out.test[out.first] = 'initial';
@@ -722,12 +725,14 @@ function specialDays(){
     if (!isDeload(w)) continue;
     let d = addD(m0, w*7+6); // dimanche
     { let g = 0; while (!isTestable(d) && g++ < 7) d = addD(d,-1); }
+    { let g = 0; while (blockedTest(d) && g++ < 40){ d = addD(d, 1); while (!isTestable(d) && g++ < 60) d = addD(d, 1); } }
+    if (dd(d, T.exam) < 10) continue;
     if (d > out.first) out.test[d] = 'test';
   }
   // Simulation complète ≈ 14 jours avant le jour J (de préférence le week-end)
   let bestD = null, bestScore = 1e9;
   for (let k=10; k<=17; k++){
-    const d = addD(T.exam, -k); if (d <= out.first || !isTestable(d)) continue;
+    const d = addD(T.exam, -k); if (d <= out.first || !isTestable(d) || blockedTest(d)) continue;
     const dow = pd(d).getDay(); const sc = Math.abs(k-14) - ((dow === 0 || dow === 6) ? 1.5 : 0);
     if (sc < bestScore){ bestScore = sc; bestD = d; }
   }
@@ -772,6 +777,8 @@ function buildSession(s){
   const dte = dd(s, T.exam);
   if (dte < 0) return { kind:'none', title:'Après le jour J', ico:'🏁', cls:'rest', blocks:[{h:'Et maintenant ?', items:["Repos complet 2–3 jours, puis reprends 3 séances par semaine pour garder le niveau jusqu'à l'agrément technique."]}] };
   const L = { ll:workLevel('ll', s), tr:workLevel('tr', s), ki:workLevel('ki', s) };
+  const rpi = repriseInfo(s), cfac = complianceFactor(s);
+  if (rpi){ const q = rpi.p; L.ll = Math.max(1, L.ll - 0.75*(1-q)); L.tr *= 0.8 + 0.2*q; L.ki *= 0.8 + 0.2*q; }
   const G = T.goals;
   const P = L.ll, V = P2V(P), Tr = Math.max(1, L.tr), K = Math.max(20, L.ki);
   const { w } = weekInfo(s);
@@ -786,8 +793,18 @@ function buildSession(s){
   const dmin = (pct, min) => r5(V*pct*1000/60*min);
   const kmh = pct => (V*pct).toFixed(1).replace('.', ',');
   const pace = pct => { const m = 60/(V*pct); const mm = Math.floor(m), ss = Math.round((m-mm)*60); return `${mm}'${pad(ss===60?0:ss)}/km`; };
-  const dl = x => deload ? Math.max(1, Math.round(x*0.7)) : x;
+  const vf = (deload ? 0.7 : 1) * (rpi ? rpi.f : 1) * cfac;
+  const dl = x => vf < 0.999 ? Math.max(1, Math.round(x*vf)) : x;
   const base = { phase, deload, w, dte, est, L };
+  const ab = absenceOn(s);
+  if (ab && dte > 0){
+    const r = ABS_R[ab.reason] || ABS_R.autre, med = ab.reason === 'operation' || ab.reason === 'blessure', R = repriseLen(ab);
+    return { ...base, kind:'absence', absence:ab, title:`Absence · ${r.n}`, ico:r.e, cls:'rest', dur:'', blocks:[
+      { h:"Aujourd'hui", items: med ? ["Pas d'entraînement : ton corps répare, c'est la priorité", "Suis les consignes de ton chirurgien ou de ton médecin", "Ne reprends pas le sport sans son feu vert"] : ab.reason === 'maladie' ? ["Repos complet tant que tu as de la fièvre", "Bois beaucoup, dors beaucoup"] : ["Pas de séance prévue aujourd'hui"] },
+      { h:'Tu peux quand même', cls:'soft', items:["Faire le quiz du jour et lire une fiche 📚", "Préparer tes réponses pour l'entretien (onglet Oral)", "Avancer ton dossier"] },
+      ...(R ? [{ h:'Au retour', cls:'soft', items:[`Reprise en douceur pendant ${R} jours : moins de séries, charges un peu plus légères, puis retour progressif à la normale.`] }] : [])
+    ]};
+  }
 
   if (dte === 0) return { ...base, kind:'exam', title:'Jour J — les épreuves', ico:'🔥', cls:'test', dur:'≈ 1 h 15', blocks:[
     {h:'Déroulé', cls:'main', items:["Luc Léger (navettes de 20 m au bip)", "15 min de récupération", "Tractions maximum", "15 min de récupération", "Test de Killy (la chaise)"]},
@@ -821,6 +838,7 @@ function buildSession(s){
   const blocks = [];
   let title = '', ico = '🏃', cls = 'run', dur = '';
   let run = null, bip = false;
+  const wo = []; let woTitle = '';
 
   if (type === 'vma'){ // VMA courte
     title = 'Course — VMA courte'; ico = '⚡'; dur = '≈ 50 min';
@@ -845,28 +863,43 @@ function buildSession(s){
     const extra = [gtg(phase === 'affutage' ? 2 : 3)];
     if (phase === 'specifique') extra.push(`Killy sur jambes fatiguées, comme le jour J : 2 × ${fmtSec(sec(0.5))}, récup 1 min`);
     blocks.push({h:'Complément', items:extra});
+    wo.push(EX.reps('Tractions faciles (graisser le geste)', phase === 'affutage' ? 2 : 3, rep(0.4), 120, "Propres, jamais à l'échec", '💪', { tr:true }));
+    if (phase === 'specifique') wo.push(EX.hold('Killy sur jambes fatiguées', 2, sec(0.5), 60, killyRule, '🪑', { ki:true }));
+    woTitle = phase === 'specifique' ? 'Complément : tractions + Killy' : 'Complément : tractions';
     blocks.push({h:'Retour au calme', cls:'soft', items:COOL});
   }
   else if (type === 'force'){ // force tractions + Killy
-    title = 'Tractions force + chaise'; ico = '💪'; cls = 'str'; dur = '≈ 45 min';
+    title = 'Tractions force + chaise'; ico = '💪'; cls = 'str'; dur = '≈ 45 min'; woTitle = 'Tractions + chaise + renfo';
     blocks.push({h:'Échauffement', items:WARM_UP});
+    wo.push(EX.timer('Échauffement', 300, WARM_UP.join(' · '), '🔥', { warm:true }));
     const main = [];
     if (phase === 'fondation'){
-      main.push(`${dl(5 + Math.min(2, w))} séries de ${rep(0.5)} tractions strictes, récup 2 min 30`, `Négatives : 3 × 3 descentes lentes (5 s), saute pour te mettre menton au-dessus`);
+      const ns = dl(5 + Math.min(2, w));
+      main.push(`${ns} séries de ${rep(0.5)} tractions strictes, récup 2 min 30`, `Négatives : 3 × 3 descentes lentes (5 s), saute pour te mettre menton au-dessus`);
+      wo.push(EX.reps('Tractions strictes', ns, rep(0.5), 150, tractionRule, '💪', { tr:true }), EX.reps('Tractions négatives (descente 5 s)', 3, 3, 90, 'Saute pour te mettre menton au-dessus de la barre, puis descends lentement en 5 s', '🐢', { tr:true }));
     } else if (phase === 'developpement'){
       const n = clamp(Math.round(Tr*0.32), 3, 10);
       main.push(`Pyramide : 1-2-3…${n}…3-2-1 tractions (${n*n} au total), récup = 10 s × le nombre que tu viens de faire`, w % 2 ? `Lest (sac à dos avec 5 kg) : 4 × ${Math.max(2, rep(0.25))}, récup 3 min — sinon 4 × ${rep(0.4)} avec 3 s de pause en haut` : `4 × ${rep(0.4)} avec 3 s de pause menton au-dessus de la barre, récup 2 min`);
+      wo.push(EX.pyramid('Pyramide de tractions', n));
+      if (w % 2) wo.push(EX.reps('Tractions lestées (sac de 5 kg)', 4, Math.max(2, rep(0.25)), 180, `Sans lest : fais ${rep(0.4)} tractions avec 3 s de pause en haut`, '🎒', { tr:true }));
+      else wo.push(EX.reps('Tractions avec 3 s de pause en haut', 4, rep(0.4), 120, 'Bloque 3 s menton au-dessus de la barre', '⏸️', { tr:true }));
     } else if (phase === 'specifique'){
       main.push(`1 série MAX (note le chiffre dans Évolution, c'est un bon indicateur)`, `Récup 4 min, puis ${dl(5)} × ${rep(0.6)}, récup 90 s`, `Finisher : ${rep(0.3)} tractions supination (paumes vers toi)`);
+      wo.push(EX.max('Tractions : série MAX', 240), EX.reps('Tractions', dl(5), rep(0.6), 90, tractionRule, '💪', { tr:true }), EX.reps('Tractions supination (paumes vers toi)', 1, rep(0.3), 60, 'Finisher', '🔄', { tr:true }));
     } else {
       main.push(`3 × ${rep(0.5)} tractions, récup 2 min 30 — vitesse et qualité, rien d'autre`);
+      wo.push(EX.reps('Tractions', 3, rep(0.5), 150, 'Vitesse et qualité, rien d\'autre', '💪', { tr:true }));
     }
     blocks.push({h:'Tractions', cls:'main', items:main});
     const kf = phase === 'fondation' ? 0.6 : phase === 'developpement' ? 0.7 : phase === 'specifique' ? 0.75 : 0.5;
     const kn = phase === 'affutage' ? 2 : dl(4);
     blocks.push({h:'Killy (chaise)', cls:'main', items:[`${kn} × ${fmtSec(sec(kf))}, récup 1 min`, killyRule]});
-    blocks.push({h:'Renfo', items:[`Pompes : ${dl(3)} × ${phase==='fondation'?12:15}`, `Gainage planche : 3 × ${phase==='fondation'?40:60} s`, `Suspension à la barre (grip) : 2 × ${phase==='fondation'?30:45} s`]});
+    wo.push(EX.hold('Killy (chaise)', kn, sec(kf), 60, killyRule, '🪑', { ki:true }));
+    const pn = dl(3), pr = phase==='fondation'?12:15, gp = phase==='fondation'?40:60, su = phase==='fondation'?30:45;
+    blocks.push({h:'Renfo', items:[`Pompes : ${pn} × ${pr}`, `Gainage planche : 3 × ${gp} s`, `Suspension à la barre (grip) : 2 × ${su} s`]});
+    wo.push(EX.reps('Pompes', pn, pr, 60, 'Corps gainé, poitrine jusqu\'au sol', '🫸'), EX.hold('Gainage planche', 3, gp, 45, 'Sur les coudes, corps aligné de la tête aux talons', '🧱'), EX.hold('Suspension à la barre', 2, su, 60, 'Bras tendus, épaules engagées', '🤲'));
     blocks.push({h:'Retour au calme', cls:'soft', items:["Étirements dorsaux et pectoraux 5 min", "Quadriceps et fessiers 3 min"]});
+    wo.push(EX.timer('Retour au calme', 480, 'Étirements : dorsaux, pectoraux, quadriceps, fessiers', '🧘', { cool:true }));
   }
   else if (type === 'endu'){ // endurance / VMA longue
     title = 'Course — VMA longue'; ico = '🏃'; dur = '≈ 50 min';
@@ -890,30 +923,49 @@ function buildSession(s){
     }
     blocks.push({h:'Corps de séance', cls:'main', items:main});
     blocks.push({h:'Complément', items:[gtg(2), `Gainage : planche 3 × ${phase==='fondation'?40:60} s + planche latérale 2 × 30 s par côté`]});
+    wo.push(EX.reps('Tractions faciles (graisser le geste)', 2, rep(0.4), 120, "Propres, jamais à l'échec", '💪', { tr:true }), EX.hold('Gainage planche', 3, phase==='fondation'?40:60, 45, 'Corps aligné de la tête aux talons', '🧱'), EX.hold('Planche latérale (alterne les côtés)', 4, 30, 20, 'Hanches hautes', '📐'));
+    woTitle = 'Complément : tractions + gainage';
     blocks.push({h:'Retour au calme', cls:'soft', items:COOL});
   }
   else if (type === 'volume'){ // volume tractions + jambes
-    title = 'Volume tractions + jambes'; ico = '🦵'; cls = 'str'; dur = '≈ 55 min';
+    title = 'Volume tractions + jambes'; ico = '🦵'; cls = 'str'; dur = '≈ 55 min'; woTitle = 'Tractions + chaise + jambes';
     blocks.push({h:'Échauffement', items:WARM_UP});
+    wo.push(EX.timer('Échauffement', 300, WARM_UP.join(' · '), '🔥', { warm:true }));
     const main = [];
     if (phase === 'fondation'){
       const n = dl(10 + Math.min(w, 4));
       main.push(`EMOM ${n} min : au début de chaque minute, ${rep(0.3)} tractions, repos le reste de la minute (${n*rep(0.3)} au total)`);
+      wo.push(EX.emom('Tractions en EMOM', n, rep(0.3)));
     } else if (phase === 'developpement'){
-      if (w % 2) { const n = dl(14 + Math.min(4, w-4)); main.push(`EMOM ${n} min : ${rep(0.35)} tractions par minute (${n*rep(0.35)} au total)`); }
-      else { const top = clamp(Math.round(Tr*0.3), 3, 8); main.push(`Échelles : 1-2-3…${top} tractions, 3 échelles, récup 2 min entre chaque (${3*top*(top+1)/2} au total)`); }
+      if (w % 2) { const n = dl(14 + Math.min(4, w-4)); main.push(`EMOM ${n} min : ${rep(0.35)} tractions par minute (${n*rep(0.35)} au total)`); wo.push(EX.emom('Tractions en EMOM', n, rep(0.35))); }
+      else { const top = clamp(Math.round(Tr*0.3), 3, 8); main.push(`Échelles : 1-2-3…${top} tractions, 3 échelles, récup 2 min entre chaque (${3*top*(top+1)/2} au total)`); wo.push(EX.ladder('Échelles de tractions', top, 3, 120)); }
     } else if (phase === 'specifique'){
-      main.push(`1 série MAX, récup 3 min`, `Puis séries de ${rep(0.5)} (récup 1 min 30) jusqu'à ${dl(Math.round(Tr*3))} tractions au total`);
+      const tot = dl(Math.round(Tr*3));
+      main.push(`1 série MAX, récup 3 min`, `Puis séries de ${rep(0.5)} (récup 1 min 30) jusqu'à ${tot} tractions au total`);
+      wo.push(EX.max('Tractions : série MAX', 180), EX.backoff(`Séries de ${rep(0.5)} jusqu'à ${tot} au total`, tot, rep(0.5), 90));
     } else {
       main.push(`EMOM 8 min : ${rep(0.3)} tractions par minute`);
+      wo.push(EX.emom('Tractions en EMOM', 8, rep(0.3)));
     }
     blocks.push({h:'Tractions', cls:'main', items:main});
     const ki = phase === 'affutage' ? [`2 × ${fmtSec(sec(0.5))}, récup 1 min 30`] :
       phase === 'specifique' ? [`1 × ${fmtSec(sec(0.95))} (presque max), récup 3 min`, `2 × ${fmtSec(sec(0.6))}, récup 1 min 30`] :
       [`1 × ${fmtSec(sec(phase==='fondation'?0.85:0.9))}, récup 3 min`, `2 × ${fmtSec(sec(0.55))}, récup 1 min 30`];
     blocks.push({h:'Killy (chaise)', cls:'main', items:ki});
-    if (phase !== 'affutage') blocks.push({h:'Jambes', items: phase === 'fondation' ? [`Squats : ${dl(4)} × 15`, `Fentes : 3 × 10 par jambe`, `Mollets : 3 × 20`] : [`Squats sautés : ${dl(3)} × 10`, `Squats lents (3 s en descente) : 3 × 12`, `Fentes : 3 × 12 par jambe`, `Mollets : 3 × 20`]});
+    if (phase === 'affutage') wo.push(EX.hold('Killy (chaise)', 2, sec(0.5), 90, killyRule, '🪑', { ki:true }));
+    else if (phase === 'specifique') wo.push(EX.hold('Killy presque max', 1, sec(0.95), 180, killyRule, '🪑', { ki:true, restAfter:180 }), EX.hold('Killy (chaise)', 2, sec(0.6), 90, killyRule, '🪑', { ki:true }));
+    else wo.push(EX.hold('Killy long', 1, sec(phase==='fondation'?0.85:0.9), 180, killyRule, '🪑', { ki:true, restAfter:180 }), EX.hold('Killy (chaise)', 2, sec(0.55), 90, killyRule, '🪑', { ki:true }));
+    if (phase !== 'affutage'){
+      if (phase === 'fondation'){
+        blocks.push({h:'Jambes', items:[`Squats : ${dl(4)} × 15`, `Fentes : 3 × 10 par jambe`, `Mollets : 3 × 20`]});
+        wo.push(EX.reps('Squats', dl(4), 15, 60, 'Dos droit, cuisses parallèles au sol', '🦵', { legs:true }), EX.reps('Fentes (par jambe)', 3, 10, 60, 'Genou arrière près du sol', '🦵', { legs:true }), EX.reps('Mollets', 3, 20, 45, 'Monte sur la pointe des pieds, lentement', '🦶', { legs:true }));
+      } else {
+        blocks.push({h:'Jambes', items:[`Squats sautés : ${dl(3)} × 10`, `Squats lents (3 s en descente) : 3 × 12`, `Fentes : 3 × 12 par jambe`, `Mollets : 3 × 20`]});
+        wo.push(EX.reps('Squats sautés', dl(3), 10, 60, 'Réception souple', '🦵', { legs:true }), EX.reps('Squats lents (3 s en descente)', 3, 12, 60, '', '🦵', { legs:true }), EX.reps('Fentes (par jambe)', 3, 12, 60, '', '🦵', { legs:true }), EX.reps('Mollets', 3, 20, 45, '', '🦶', { legs:true }));
+      }
+    }
     blocks.push({h:'Retour au calme', cls:'soft', items:["Étirements quadriceps, fessiers, dos, épaules 8 min"]});
+    wo.push(EX.timer('Retour au calme', 480, 'Étirements : quadriceps, fessiers, dos, épaules', '🧘', { cool:true }));
   }
   else { // footing
     title = 'Footing endurance'; ico = '🌿'; dur = '';
@@ -922,9 +974,11 @@ function buildSession(s){
     blocks.push({h:'Séance', cls:'main', items:[`${min} min de footing à allure conversation (${pace(0.68)}, ≈ ${kmh(0.68)} km/h)`, `Finis par 5 lignes droites de 80 m en accélérant progressivement`]});
     run = { title:`Footing ${min} min`, steps:[RS.steady(min*60, V*0.68)] };
     blocks.push({h:'Mobilité', items:["10 min : hanches, chevilles, épaules, dos", "Suspension passive à la barre 2 × 30 s (décompresse le dos, renforce la prise)"]});
+    wo.push(EX.timer('Mobilité', 600, 'Hanches, chevilles, épaules, dos', '🧘'), EX.hold('Suspension passive à la barre', 2, 30, 45, 'Relâche le dos, garde les épaules engagées', '🤲'));
+    woTitle = 'Mobilité guidée';
   }
 
-  return { title, ico, cls, dur, blocks, run, bip };
+  return { title, ico, cls, dur, blocks, run, bip, wo, woTitle };
   };
   let out;
   if (type === 'combo'){ // course, puis tractions en volume, puis Killy sur jambes fatiguées
@@ -937,8 +991,12 @@ function buildSession(s){
       { ...pick(b, 'Killy (chaise)'), h:'3. Killy, jambes déjà fatiguées comme le jour J' },
       { h:'Gainage', items:[`Planche : 3 × ${phase==='fondation'?40:60} s`, `Planche latérale : 2 × 30 s par côté`] },
       { h:'Retour au calme', cls:'soft', items:COOL }
-    ].filter(Boolean), run: a.run, bip: a.bip };
+    ].filter(Boolean), run: a.run, bip: a.bip,
+      wo: [...b.wo.filter(x => !x.warm && !x.legs && !x.cool), EX.hold('Gainage planche', 3, phase==='fondation'?40:60, 45, 'Corps aligné de la tête aux talons', '🧱'), EX.hold('Planche latérale (alterne les côtés)', 4, 30, 20, 'Hanches hautes', '📐'), EX.timer('Retour au calme', 300, 'Étirements', '🧘', { cool:true })],
+      woTitle: 'Tractions + Killy + gainage' };
   } else out = make(type);
+  if (rpi){ const r = ABS_R[rpi.a.reason] || ABS_R.autre; out.blocks.unshift({ h:`Reprise après ${r.n.toLowerCase()} · jour ${rpi.k}/${rpi.R}`, cls:'soft', items:[`Volume à ${Math.round(rpi.f*100)} % et charges allégées : ça remonte un peu chaque jour.`, ...(rpi.a.reason === 'operation' || rpi.a.reason === 'blessure' ? ["Uniquement avec le feu vert de ton médecin. À la moindre douleur inhabituelle, arrête-toi."] : ["Écoute ton corps : si c'est trop dur, fais moins."])] }); }
+  if (cfac < 1) out.blocks.unshift({ h:'On reprend le rythme', cls:'soft', items:["Plusieurs séances manquées ces deux dernières semaines : volume légèrement réduit le temps de retrouver la régularité."] });
   if (deload) out.blocks.unshift({h:'Semaine allégée', cls:'soft', items:["Volume réduit d'environ 30 % cette semaine : c'est voulu, ton corps assimile le travail des 3 dernières semaines. Test de contrôle en fin de semaine."]});
   return { ...base, kind:'train', ...out };
 }
@@ -946,6 +1004,7 @@ function buildSession(s){
 function sessionStatus(s){
   const log = S.train.log[s]; const t = todayStr();
   const sess = buildSession(s);
+  if (sess.kind === 'absence') return { sess, st:'excused' };
   if (sess.kind === 'none' || sess.kind === 'rest') return { sess, st:'rest' };
   if (log && log.done) return { sess, st:'ok' };
   if (sess.test && S.train.tests.some(x => x.date === s)) return { sess, st:'ok' };
@@ -970,17 +1029,20 @@ function sessionCard(s, opts={}){
   if (sess.est && (sess.kind === 'train')) h += `<div class="warnbox small" style="margin:12px 0 0">Charges <b>estimées</b> : saisis les résultats de ton évaluation de départ pour que le plan colle à ton vrai niveau.</div>`;
   for (const b of sess.blocks) h += `<div class="block ${b.cls||''}"><h4>${esc(b.h)}</h4><ul>${b.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`;
   if (L && sess.kind === 'train' && !opts.compact) h += `<div class="targets"><div class="tg"><b>P${fmtLL(Math.round(L.ll*4)/4)}</b><span>LL de travail</span></div><div class="tg"><b>${Math.round(L.tr)}</b><span>tractions réf.</span></div><div class="tg"><b>${fmtSec(r5(L.ki))}</b><span>chaise réf.</span></div></div>`;
+  if (sess.kind === 'absence') h += `<button class="btn sm block" data-act="abs-edit" data-id="${sess.absence.id}" style="margin-top:14px">Modifier ou annuler cette absence</button>`;
   if (sess.kind === 'train' || sess.kind === 'test' || sess.kind === 'exam'){
     const log = S.train.log[s];
     if (st === 'ok') h += `<div class="done-banner">${ICON_CHECK.replace('<svg','<svg style="width:20px;height:20px"')}<div class="grow">Séance faite${log && log.feel ? ` · ressenti ${['','😫','😕','🙂','😀','🔥'][log.feel]}` : ''}${log && log.note ? `<div class="small" style="font-weight:500;color:var(--text)">${esc(log.note)}</div>` : ''}</div><button class="btn sm ghost" data-act="undo" data-d="${s}">Annuler</button></div>`;
     else if (s <= todayStr() || opts.allowFuture){
       if (sess.run) h += `<button class="btn block" data-act="run" data-d="${s}" style="margin-top:14px;height:52px;background:var(--info-soft);color:var(--info);border-color:transparent;white-space:normal">⏱️ Chrono + GPS : ${esc(sess.run.title)}</button>`;
       if (sess.bip) h += `<button class="btn block" data-act="bip" style="margin-top:8px">📣 Bip Luc Léger pour les navettes</button>`;
-      h += `<div class="btns" style="margin-top:${sess.run || sess.bip ? 8 : 14}px">`;
+      if (sess.wo && sess.wo.length) h += `<button class="btn block" data-act="wo" data-d="${s}" style="margin-top:${sess.run || sess.bip ? 8 : 14}px;height:52px;background:var(--accent-soft);color:var(--accent);border-color:transparent;white-space:normal">▶ Séance guidée : ${esc(sess.woTitle || 'chrono, séries, repos')}</button>`;
+      h += `<div class="btns" style="margin-top:${sess.run || sess.bip || (sess.wo && sess.wo.length) ? 8 : 14}px">`;
       if (sess.test || sess.kind === 'exam') h += `<button class="btn" data-act="sim">⏱️ Lancer la simulation</button><button class="btn primary" data-act="results" data-d="${s}">Saisir mes résultats</button>`;
       else h += `<button class="btn primary block" data-act="done" data-d="${s}">${ICON_CHECK.replace('<svg','<svg style="width:18px;height:18px"')} J'ai fait la séance</button>`;
       h += `</div>`;
-      if (st === 'miss') h += `<div class="faint small" style="margin-top:8px;text-align:center">Séance passée non validée. Pas grave : on ne rattrape pas, on reprend le plan du jour.</div>`;
+      if (st === 'miss') h += `<div class="faint small" style="margin-top:8px;text-align:center">Séance passée non validée. Pas grave : on ne rattrape pas, on reprend le plan du jour.</div><button class="btn sm block" data-act="absence" data-d="${s}" style="margin-top:8px">Justifier cette absence (blessure, maladie…)</button>`;
+      else if (sess.kind === 'train' && s >= todayStr()) h += `<button class="btn sm ghost block" data-act="absence" data-d="${s}" style="margin-top:6px">Je ne peux pas m'entraîner ce jour-là</button>`;
     }
   }
   h += `</div>`;
@@ -1070,7 +1132,7 @@ function trainPlan(){
   h += `<div class="card tight">`;
   for (let i=0;i<7;i++){
     const s = addD(mon, i); const { sess, st } = sessionStatus(s);
-    const stTag = st === 'ok' ? '<span class="tag ok">fait</span>' : st === 'miss' ? '<span class="tag red">manqué</span>' : sess.test ? '<span class="tag warn">test</span>' : sess.kind === 'exam' ? '<span class="tag red">JOUR J</span>' : '';
+    const stTag = st === 'excused' ? '<span class="tag info">absence</span>' : st === 'ok' ? '<span class="tag ok">fait</span>' : st === 'miss' ? '<span class="tag red">manqué</span>' : sess.test ? '<span class="tag warn">test</span>' : sess.kind === 'exam' ? '<span class="tag red">JOUR J</span>' : '';
     h += `<div class="dayrow ${s===t?'today':''}" data-act="day" data-d="${s}" style="cursor:pointer">
       <div class="dt"><span>${DOW[pd(s).getDay()]}</span><b>${pd(s).getDate()}</b></div>
       <div class="sess-ico ${sess.cls}" style="width:38px;height:38px;font-size:18px;border-radius:12px">${sess.ico}</div>
@@ -1078,7 +1140,8 @@ function trainPlan(){
       ${stTag}${ICON_CHEV}
     </div>`;
   }
-  h += `</div><p class="faint small" style="text-align:center">Les charges (mètres, répétitions, secondes) se recalculent à chaque nouveau test que tu saisis.</p>`;
+  h += `</div><p class="faint small" style="text-align:center">Les charges (mètres, répétitions, secondes) se recalculent à chaque test saisi et selon les séances que tu fais vraiment.</p>`;
+  h += absencesCard();
   return h;
 }
 function trainEvo(){
@@ -1091,11 +1154,11 @@ function trainEvo(){
   for (const s of days.slice().reverse()){
     if (s > t) continue;
     const { st } = sessionStatus(s);
-    if (st === 'rest') continue;
+    if (st === 'rest' || st === 'excused') continue;
     if (s === t && st === 'todo') continue;
     if (streakOn){ if (st === 'ok') streak++; else streakOn = false; }
   }
-  for (const s of days){ if (s > t) break; const { st } = sessionStatus(s); if (st === 'rest') continue; if (s === t && st === 'todo') continue; planned++; if (st === 'ok') done++; }
+  for (const s of days){ if (s > t) break; const { st } = sessionStatus(s); if (st === 'rest' || st === 'excused') continue; if (s === t && st === 'todo') continue; planned++; if (st === 'ok') done++; }
   const r = readiness();
   let h = `<div class="kpis"><div class="kpi"><b>${Math.round(r.pct*100)}%</b><span>prêt pour le jour J</span></div><div class="kpi"><b>${done}/${planned}</b><span>séances faites</span></div><div class="kpi"><b>${streak}🔥</b><span>série en cours</span></div></div>`;
   // Heatmap
@@ -1105,11 +1168,11 @@ function trainEvo(){
   for (let i = 0, s0 = mondayOf(T.start); i < nWeeks*7; i++){
     const s = addD(s0, i);
     if (s < T.start || s > T.exam){ h += `<div class="pad"></div>`; continue; }
-    const { st } = sessionStatus(s); const c = s > t ? (st==='rest'?'r':'fut') : st === 'ok' ? 'ok' : st === 'miss' ? 'miss' : st === 'rest' ? 'r' : 'fut';
+    const { st } = sessionStatus(s); const c = st === 'excused' ? 'exc' : s > t ? (st==='rest'?'r':'fut') : st === 'ok' ? 'ok' : st === 'miss' ? 'miss' : st === 'rest' ? 'r' : 'fut';
     h += `<div class="${c} ${s===t?'td':''}" title="${fmtD(s)}"></div>`;
   }
   h += `</div>`;
-  h += `</div><div class="legend"><span><i style="background:var(--ok)"></i>faite</span><span><i style="background:var(--accent);opacity:.55"></i>manquée</span><span><i style="border:1px dashed var(--border-strong);height:8px;width:8px"></i>repos</span></div></div>`;
+  h += `</div><div class="legend"><span><i style="background:var(--ok)"></i>faite</span><span><i style="background:var(--accent);opacity:.55"></i>manquée</span><span><i style="border:1px dashed var(--border-strong);height:8px;width:8px"></i>repos</span><span><i style="background:repeating-linear-gradient(45deg,var(--info) 0 2px,transparent 2px 4px);height:8px;width:8px"></i>absence</span></div></div>`;
   // Graphiques
   for (const k of ['ll','tr','ki']) h += chartCard(k);
   // Historique
@@ -1448,6 +1511,10 @@ function trainClick(e){
   else if (a === 'bip'){ closeSheet(); bipTool(); }
   else if (a === 'run'){ const ss = buildSession(b.dataset.d); closeSheet(); if (ss.run) runTool(ss.run, b.dataset.d); }
   else if (a === 'freerun') freeRunSheet();
+  else if (a === 'wo'){ const ss = buildSession(b.dataset.d); closeSheet(); if (ss.wo && ss.wo.length) workoutTool(ss.wo, b.dataset.d, ss.woTitle); }
+  else if (a === 'absence'){ closeSheet(); absenceSheet({ from:b.dataset.d, to:b.dataset.d }); }
+  else if (a === 'abs-new'){ closeSheet(); absenceSheet(); }
+  else if (a === 'abs-edit'){ closeSheet(); absenceSheet({ id:b.dataset.id }); }
   else if (a === 'killy') killyTool();
   else if (a === 'count') countTool();
   else if (a === 'timer') timerTool();
@@ -2172,10 +2239,10 @@ function weekCard(){
   const cells = [];
   for (let i=0;i<7;i++){
     const s = addD(mon, i), { sess, st } = sessionStatus(s);
-    const isTrain = st !== 'rest' && sess.kind !== 'none';
+    const isTrain = st !== 'rest' && st !== 'excused' && sess.kind !== 'none';
     if (isTrain){ planned++; if (st === 'ok') done++; }
     const qd = S.quiz.days[s] && S.quiz.days[s].done; if (qd) quiz++;
-    const ic = !isTrain ? '·' : st === 'ok' ? '✅' : st === 'miss' ? '✗' : sess.ico;
+    const ic = st === 'excused' ? sess.ico : !isTrain ? '·' : st === 'ok' ? '✅' : st === 'miss' ? '✗' : sess.ico;
     cells.push(`<div class="wd ${s===t?'today':''} ${!isTrain?'rest':''}"><span>${DOW[pd(s).getDay()]}</span><b>${pd(s).getDate()}</b><i>${ic}</i>${qd ? '<span class="st ok"></span>' : ''}</div>`);
   }
   return `<div class="sec-title"><h3>Ma semaine</h3><span>${done}/${planned} séances · ${quiz}/7 quiz</span></div><div class="week">${cells.join('')}</div>`;
@@ -2366,7 +2433,9 @@ function runTool(run, ds){
         <div class="muted small" style="margin:4px 0 8px">${withD.length ? `Moyenne ${Math.round(avg)} m · ${hit}/${withD.length} dans l'objectif` : 'Pas de mesure GPS pendant les fractions'}</div>
         <div class="chips">${reps.map(r => `<span class="tag ${r.dist >= r.target*0.95 ? 'ok' : r.dist ? 'red' : ''}">${r.sets > 1 || reps.some(x => x.set > 1) ? `S${r.set} ` : ''}#${r.rep} · ${Math.round(r.dist)} m</span>`).join('')}</div></div>` : ''}
       ${ds && ds <= todayStr() && !(S.train.log[ds] && S.train.log[ds].done) ? `<button class="btn ok block" id="rn-val" style="height:52px">Valider la séance du ${fmtD(ds)}</button>` : ''}
+      ${ds && buildSession(ds).wo && buildSession(ds).wo.length ? `<button class="btn primary block" id="rn-wo" style="margin-top:8px;height:52px">Enchaîner : ${esc(buildSession(ds).woTitle)}</button>` : ''}
       <button class="btn block" id="rn-x" style="margin-top:8px">Fermer</button>`;
+    if ($('rn-wo')) $('rn-wo').onclick = () => { const ss = buildSession(ds); workoutTool(ss.wo, ds, ss.woTitle); };
     if ($('rn-val')) $('rn-val').onclick = () => {
       S.train.log[ds] = { done:true, at:new Date().toISOString(), feel:3, note: reps.length && withD.length ? `Chrono : ${reps.length} fractions, moyenne ${Math.round(avg)} m (objectif ${tgt} m)` : `Chrono : ${fmtClock(e)}, ${(totalDist/1000).toFixed(2).replace('.',',')} km` };
       save(); toast('Séance validée 💪'); closeOv();
@@ -2409,6 +2478,255 @@ function freeRunSheet(){
       };
       el.querySelector('[data-x=steady]').onclick = () => { closeSheet(); runTool({ title:'Footing', steps:[RS.steady(60*60, +(V*0.68).toFixed(1), 'Footing', 'Termine quand tu veux avec « Terminer »')] }, null); };
     });
+}
+
+
+/* =========================================================
+   ABSENCES JUSTIFIÉES & REPRISE PROGRESSIVE
+   ========================================================= */
+const ABS_R = { operation:{ n:'Opération', e:'🏥' }, blessure:{ n:'Blessure', e:'🤕' }, maladie:{ n:'Maladie', e:'🤒' }, autre:{ n:'Autre empêchement', e:'📅' } };
+const absences = () => S.train.absences || [];
+const absenceOn = s => absences().find(a => a.from <= s && s <= a.to) || null;
+const repriseLen = a => { const len = dd(a.from, a.to) + 1; return len < 3 ? 0 : Math.min(21, Math.max(4, len)); };
+// Reprise après une absence d'au moins 3 jours : volume de 55 % à 95 %, charges un peu plus légères
+function repriseInfo(s){
+  let best = null;
+  for (const a of absences()){
+    if (a.to >= s) continue;
+    const R = repriseLen(a); if (!R) continue;
+    const k = dd(a.to, s);
+    if (k >= 1 && k <= R){ const p = (k-1)/R; const c = { a, R, k, p, f: 0.55 + 0.4*p }; if (!best || c.f < best.f) best = c; }
+  }
+  return best;
+}
+// Si plus de la moitié des séances des 14 derniers jours ont été manquées (sans justification), on allège un peu
+function complianceFactor(s){
+  const t = todayStr(), end = s < t ? s : t, first = specialDays().first;
+  let planned = 0, done = 0;
+  for (let d = addD(end, -14); d < end; d = addD(d, 1)){
+    if (d < first || d < S.train.start || isRest(d) || absenceOn(d)) continue;
+    planned++;
+    const lg = S.train.log[d]; if ((lg && lg.done) || S.train.tests.some(x => x.date === d)) done++;
+  }
+  return planned >= 4 && done/planned < 0.5 ? 0.85 : 1;
+}
+// Semaines d'entraînement « effectives » : seulement les séances faites (passé) ou prévues (futur)
+function effWeeks(from, s){
+  const t = todayStr(), wk = S.train.week || WEEK_FOOT;
+  const perWeek = Math.max(1, Object.values(wk).filter(x => x !== 'rest').length);
+  let n = 0;
+  for (let d = addD(from, 1); d < s; d = addD(d, 1)){
+    if (isRest(d) || absenceOn(d)) continue;
+    if (d < t){ const lg = S.train.log[d]; if ((lg && lg.done) || S.train.tests.some(x => x.date === d)) n++; }
+    else n++;
+  }
+  return n / perWeek;
+}
+const blockedTest = d => !!absenceOn(d) || (() => { const r = repriseInfo(d); return !!(r && r.k <= 6); })();
+
+function absenceSheet(pref){
+  const ex = pref && pref.id ? absences().find(a => a.id === pref.id) : null;
+  const a = ex || { from:(pref && pref.from) || todayStr(), to:(pref && pref.to) || todayStr(), reason:'operation', note:'' };
+  let reason = a.reason;
+  openSheet(`<h3>${ex ? "Modifier l'absence" : 'Déclarer une absence'}</h3>
+    <p class="muted small">Les séances de ces jours ne compteront pas comme manquées. Au retour, le plan reprend en douceur.</p>
+    <div class="field"><label>Motif</label><div class="chips" id="ab-r">${Object.entries(ABS_R).map(([k,v]) => `<button class="chip ${reason===k?'on':''}" data-v="${k}">${v.e} ${v.n}</button>`).join('')}</div></div>
+    <div class="f2"><div class="field"><label>Du</label><input type="date" id="ab-f" value="${a.from}"></div><div class="field"><label>Au (inclus)</label><input type="date" id="ab-t" value="${a.to}"></div></div>
+    <div class="field"><label>Note (facultatif)</label><input id="ab-n" value="${esc(a.note || '')}" placeholder="Ex. : opération, plâtre 1 semaine"></div>
+    <div class="btns">${ex ? '<button class="btn" data-x="del" style="color:var(--accent)">Supprimer</button>' : ''}<button class="btn primary" data-x="ok">Enregistrer</button></div>`, el => {
+      el.querySelector('#ab-r').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; reason = b.dataset.v; el.querySelectorAll('#ab-r .chip').forEach(x => x.classList.toggle('on', x === b)); };
+      el.querySelector('[data-x=ok]').onclick = () => {
+        const from = el.querySelector('#ab-f').value, to = el.querySelector('#ab-t').value;
+        if (!from || !to || to < from){ toast('La date de fin doit être après la date de début'); return; }
+        const rec = { id: ex ? ex.id : 'a' + Date.now(), from, to, reason, note: el.querySelector('#ab-n').value.trim() };
+        S.train.absences = absences().filter(x => x.id !== rec.id).concat(rec);
+        _specialCache = null; save(); closeSheet(); render();
+        const n = dd(from, to) + 1, R = repriseLen(rec);
+        toast(`Absence enregistrée (${n} jour${n>1?'s':''})${R ? ` · reprise en douceur sur ${R} jours` : ''}`);
+      };
+      const del = el.querySelector('[data-x=del]');
+      if (del) del.onclick = () => { if (del.dataset.c){ S.train.absences = absences().filter(x => x.id !== ex.id); _specialCache = null; save(); closeSheet(); render(); toast('Absence supprimée'); } else { del.dataset.c = 1; del.textContent = 'Confirmer ?'; } };
+    });
+}
+function absencesCard(){
+  const list = absences().slice().sort((a,b) => b.from.localeCompare(a.from));
+  return `<div class="sec-title"><h3>Absences justifiées</h3><button class="btn sm" data-act="abs-new">+ Déclarer</button></div>
+    ${list.length ? `<div class="card tight">${list.map(a => { const r = ABS_R[a.reason] || ABS_R.autre, n = dd(a.from, a.to) + 1; return `<div class="dayrow" data-act="abs-edit" data-id="${a.id}" style="cursor:pointer"><div style="font-size:24px;width:36px;text-align:center">${r.e}</div><div class="grow"><b>${r.n}${a.note ? ` · ${esc(a.note)}` : ''}</b><div class="faint small">${a.from === a.to ? fmtDL(a.from) : `du ${fmtD(a.from)} au ${fmtD(a.to)}`} · ${n} jour${n>1?'s':''}${repriseLen(a) ? ` · reprise ${repriseLen(a)} j` : ''}</div></div>${ICON_CHEV}</div>`; }).join('')}</div>`
+    : `<div class="card muted small">Opération, blessure, maladie… Déclare-la ici : ces jours ne compteront pas comme manqués et le plan reprendra en douceur.</div>`}`;
+}
+
+/* =========================================================
+   SÉANCE GUIDÉE (tractions, chaise, gainage, jambes…)
+   ========================================================= */
+const EX = {
+  timer: (name, d, note='', ico='⏱️', extra={}) => ({ type:'timer', name, d, note, ico, ...extra }),
+  reps: (name, sets, reps, rest, note='', ico='💪', extra={}) => ({ type:'reps', name, sets, reps, rest, note, ico, ...extra }),
+  hold: (name, sets, hold, rest, note='', ico='🪑', extra={}) => ({ type:'hold', name, sets, hold, rest, note, ico, ...extra }),
+  emom: (name, min, reps, note='') => ({ type:'emom', name, min, reps, note, ico:'⏲️', tr:true }),
+  pyramid: (name, top) => ({ type:'list', name, tr:true, ico:'🔺', note:'Récup = 10 s × le nombre de tractions que tu viens de faire',
+    list:[...Array.from({length:top}, (_, i) => i+1), ...Array.from({length:top-1}, (_, i) => top-1-i)], restPer:10 }),
+  ladder: (name, top, count=3, between=120) => { const list = [], rests = []; for (let c=0; c<count; c++) for (let r=1; r<=top; r++){ list.push(r); rests.push(r === top ? between : Math.max(15, r*10)); } return { type:'list', name, list, rests, tr:true, ico:'🪜', note:`${count} échelles de 1 à ${top} tractions` }; },
+  max: (name, rest, note='') => ({ type:'max', name, rest, note, ico:'🔥', tr:true }),
+  backoff: (name, total, per, rest) => ({ type:'backoff', name, total, per, rest, ico:'💪', tr:true })
+};
+function woSteps(wo){
+  const q = [];
+  wo.forEach((ex, xi) => {
+    const last = xi === wo.length - 1;
+    const after = last ? 0 : (ex.restAfter != null ? ex.restAfter : Math.min(ex.rest || 60, 90));
+    if (ex.type === 'timer') q.push({ k:'timer', ex, d:ex.d });
+    else if (ex.type === 'reps' || ex.type === 'hold'){
+      for (let i=1; i<=ex.sets; i++){
+        q.push({ k: ex.type === 'reps' ? 'set' : 'hold', ex, set:i, sets:ex.sets, reps:ex.reps, d:ex.hold });
+        const r = i < ex.sets ? ex.rest : after; if (r) q.push({ k:'rest', ex, d:r });
+      }
+    } else if (ex.type === 'emom'){ q.push({ k:'emom', ex, min:ex.min, reps:ex.reps }); if (after) q.push({ k:'rest', ex, d:after }); }
+    else if (ex.type === 'list'){
+      ex.list.forEach((n, i) => { q.push({ k:'set', ex, set:i+1, sets:ex.list.length, reps:n }); const r = i < ex.list.length - 1 ? (ex.rests ? ex.rests[i] : n*ex.restPer) : after; if (r) q.push({ k:'rest', ex, d:r }); });
+    } else if (ex.type === 'max'){ q.push({ k:'max', ex }); q.push({ k:'rest', ex, d:ex.rest }); }
+    else if (ex.type === 'backoff') q.push({ k:'backoff', ex, after });
+  });
+  return q;
+}
+function workoutTool(wo, ds, title){
+  const q = woSteps(wo);
+  let i = -1, iv = 0, t0 = 0, dur = 0, running = false, lastMax = null, lastBeep = -1, val = 0;
+  const log = [];
+  const cleanup = () => { clearInterval(iv); releaseWake(); try{ speechSynthesis.cancel(); }catch(e){} };
+  openOv(title || 'Séance guidée', '', cleanup);
+  audio(); keepAwake();
+  const nRealSteps = () => q.filter(x => x.k !== 'rest').length;
+  const nDone = () => q.slice(0, Math.max(0, i)).filter(x => x.k !== 'rest').length;
+  const label = x => !x ? 'Fin de la séance' : x.k === 'set' ? `${x.ex.name} · ${x.reps}${x.sets > 1 ? ` (série ${x.set}/${x.sets})` : ''}` : x.k === 'hold' ? `${x.ex.name} · ${fmtSec(x.d)}${x.sets > 1 ? ` (${x.set}/${x.sets})` : ''}` : x.k === 'emom' ? `EMOM ${x.min} min · ${x.reps} par minute` : x.k === 'timer' ? `${x.ex.name} · ${fmtSec(x.d)}` : x.ex.name;
+  const nextReal = from => { for (let j = from; j < q.length; j++) if (q[j].k !== 'rest') return q[j]; return null; };
+  const spoken = s => s.replace(/ min/g, ' minutes').replace(/ s\b/g, ' secondes');
+  const head = st => `<div class="prog" style="height:6px;margin-top:0"><div style="width:${nDone()/Math.max(1, nRealSteps())*100}%"></div></div>
+    <div class="row" style="gap:10px;margin:12px 0 4px"><div style="font-size:30px">${st.ex.ico || '💪'}</div><div class="grow"><div class="faint small" style="font-weight:700;text-transform:uppercase;letter-spacing:.06em">${st.k === 'rest' ? 'Repos' : st.sets > 1 ? `Série ${st.set} / ${st.sets}` : st.k === 'emom' ? 'EMOM' : st.k === 'timer' ? 'Étape' : 'Exercice'}</div><h3 style="font-size:20px;line-height:1.2">${esc(st.k === 'rest' ? 'Récupère' : st.ex.name)}</h3></div></div>`;
+  const stop = () => { clearInterval(iv); running = false; };
+  const next = () => { stop(); i++; lastBeep = -1; if (i >= q.length) return finish(); if (q[i].k === 'backoff'){ expand(); } if (i >= q.length) return finish(); show(true); };
+  const expand = () => {
+    const st = q[i], m = lastMax || 0, rem = Math.max(0, st.ex.total - m), n = Math.ceil(rem / Math.max(1, st.ex.per)), add = [];
+    for (let k=1; k<=n; k++){ const r = k < n ? st.ex.per : rem - st.ex.per*(n-1); add.push({ k:'set', ex:st.ex, set:k, sets:n, reps:r }); const rr = k < n ? st.ex.rest : st.after; if (rr) add.push({ k:'rest', ex:st.ex, d:rr }); }
+    q.splice(i, 1, ...add);
+    if (n) toast(`Encore ${rem} tractions pour atteindre ${st.ex.total} au total`);
+  };
+  const countdown = (d, onTick, onEnd, beepEvery) => {
+    stop(); running = true; t0 = performance.now(); dur = d;
+    iv = setInterval(() => {
+      const el = (performance.now() - t0)/1000, left = dur - el;
+      onTick(el, left);
+      const c = Math.ceil(left); if (c <= 3 && c >= 1 && c !== lastBeep){ lastBeep = c; beep(760,.07); }
+      if (beepEvery && Math.floor(el / beepEvery) > Math.floor((el - 0.2) / beepEvery) && left > 3) beep(880,.06);
+      if (left <= 0){ stop(); onEnd(); }
+    }, 200);
+  };
+  function show(announce){
+    const st = q[i], body = $('ov-body');
+    $('ov-extra').textContent = `${nDone()+1}/${nRealSteps()}`;
+    const after = `<div class="faint small" style="text-align:center;margin-top:10px">Ensuite : ${esc(label(nextReal(i+1)))}</div>`;
+    if (st.k === 'timer'){
+      body.innerHTML = head(st) + `${st.ex.note ? `<p class="muted">${esc(st.ex.note)}</p>` : ''}<div class="timer" id="wo-t">${fmtClock(st.d)}</div><div class="prog"><div id="wo-b" style="width:0"></div></div>
+        <div class="btns"><button class="btn primary" id="wo-go" style="height:56px">Démarrer</button><button class="btn" id="wo-skip" style="height:56px">Passer ⏭</button></div>` + after;
+      if (announce) say(spoken(`${st.ex.name}, ${fmtSec(st.d)}`));
+      $('wo-skip').onclick = next;
+      $('wo-go').onclick = () => { if (running){ stop(); $('wo-go').textContent = 'Reprendre'; dur = Math.max(0, dur - (performance.now()-t0)/1000); return; }
+        const d0 = $('wo-go').textContent === 'Reprendre' ? dur : st.d; $('wo-go').textContent = 'Pause';
+        countdown(d0, (el, left) => { $('wo-t').textContent = fmtClock(Math.ceil(left)); $('wo-b').style.width = clamp(1 - left/st.d, 0, 1)*100 + '%'; }, () => { beepPalier(); next(); }); };
+    }
+    else if (st.k === 'set'){
+      val = st.reps;
+      body.innerHTML = head(st) + `<div style="text-align:center;margin:10px 0 2px"><div class="faint small" style="font-weight:700">OBJECTIF</div><div class="note20" style="margin:0">${st.reps}</div><div class="muted">répétition${st.reps > 1 ? 's' : ''}</div></div>
+        ${st.ex.note ? `<p class="faint small" style="text-align:center">${esc(st.ex.note)}</p>` : ''}
+        <div class="row" style="justify-content:center;gap:14px;margin:12px 0"><button class="btn" id="wo-m" style="width:56px;font-size:22px">−</button><div style="text-align:center"><div class="faint small">j'en ai fait</div><b id="wo-v" style="font:800 30px 'Bricolage Grotesque',sans-serif">${val}</b></div><button class="btn" id="wo-p" style="width:56px;font-size:22px">+</button></div>
+        <button class="btn primary block" id="wo-ok" style="height:60px;font-size:18px">Série faite ✓</button>
+        <button class="btn ghost block" id="wo-skip" style="margin-top:6px">Passer cette série</button>` + after;
+      if (announce) say(`${st.sets > 1 ? `Série ${st.set} sur ${st.sets}. ` : ''}${st.reps} ${st.ex.tr ? (st.reps > 1 ? 'tractions' : 'traction') : 'répétitions'}`);
+      $('wo-m').onclick = () => { val = Math.max(0, val-1); $('wo-v').textContent = val; };
+      $('wo-p').onclick = () => { val++; $('wo-v').textContent = val; };
+      $('wo-ok').onclick = () => { log.push({ ex:st.ex, reps:val, target:st.reps }); vibrate(30); next(); };
+      $('wo-skip').onclick = next;
+    }
+    else if (st.k === 'max'){
+      let n = 0;
+      body.innerHTML = head(st) + `<p class="muted" style="text-align:center">${esc(st.ex.note || tractionRule)}</p><div class="lbl">Tape sur le cercle à chaque traction valide</div><button class="counter" id="wo-c">0</button>
+        <div class="btns"><button class="btn" id="wo-m">−1</button><button class="btn primary" id="wo-f">Terminé</button></div>` + after;
+      if (announce) say('Série maximum. Donne tout !');
+      $('wo-c').onclick = () => { n++; $('wo-c').textContent = n; beep(990,.05); vibrate(20); };
+      $('wo-m').onclick = () => { n = Math.max(0, n-1); $('wo-c').textContent = n; };
+      $('wo-f').onclick = () => { lastMax = n; log.push({ ex:st.ex, reps:n, max:true }); say(`${n} tractions, bravo`); next(); };
+    }
+    else if (st.k === 'hold'){
+      body.innerHTML = head(st) + `${st.ex.note ? `<p class="muted" style="text-align:center">${esc(st.ex.note)}</p>` : ''}<div class="lbl">Tiens</div><div class="timer" id="wo-t">${fmtClock(st.d)}</div><div class="prog"><div id="wo-b" style="width:0"></div></div>
+        <button class="btn primary block" id="wo-go" style="height:60px;font-size:18px">Démarrer</button>
+        <button class="btn ghost block" id="wo-skip" style="margin-top:6px">Passer</button>` + after;
+      if (announce) say(spoken(`${st.ex.name}, ${fmtSec(st.d)}${st.sets > 1 ? `, série ${st.set} sur ${st.sets}` : ''}`));
+      $('wo-skip').onclick = next;
+      $('wo-go').onclick = () => {
+        if (running){ const held = Math.round((performance.now()-t0)/1000); stop(); log.push({ ex:st.ex, hold:held, target:st.d }); beepEnd(); next(); return; }
+        $('wo-go').textContent = "J'ai lâché"; beep(880,.15);
+        countdown(st.d, (el, left) => { $('wo-t').textContent = fmtClock(Math.ceil(left)); $('wo-b').style.width = clamp(el/st.d, 0, 1)*100 + '%'; }, () => { log.push({ ex:st.ex, hold:st.d, target:st.d }); beepPalier(); say('Terminé'); next(); }, 15);
+      };
+    }
+    else if (st.k === 'emom'){
+      body.innerHTML = head(st) + `<p class="muted" style="text-align:center">Au bip, fais <b>${st.reps} tractions</b>, puis repos jusqu'à la minute suivante.</p><div class="timer" id="wo-t">1:00</div>
+        <div class="bigstat"><div><b id="wo-r">0/${st.min}</b><span>minute</span></div><div><b id="wo-d">0</b><span>tractions faites</span></div><div><b>${st.min*st.reps}</b><span>objectif</span></div></div>
+        <button class="btn primary block" id="wo-go" style="height:60px;font-size:18px">Démarrer l'EMOM</button>` + after;
+      if (announce) say(`EMOM ${st.min} minutes, ${st.reps} tractions par minute`);
+      $('wo-go').onclick = () => {
+        if (running){ stop(); const m = Math.min(st.min, Math.floor((performance.now()-t0)/60000) + 1); log.push({ ex:st.ex, reps:m*st.reps }); next(); return; }
+        $('wo-go').textContent = 'Arrêter'; let lastMin = -1; stop(); running = true; t0 = performance.now();
+        iv = setInterval(() => {
+          const s = (performance.now()-t0)/1000, m = Math.floor(s/60);
+          if (m >= st.min){ stop(); log.push({ ex:st.ex, reps:st.min*st.reps }); beepEnd(); say('EMOM terminé'); next(); return; }
+          if (m !== lastMin){ lastMin = m; beepPalier(); say(`Minute ${m+1}. ${st.reps} tractions`); }
+          const left = 60 - (s - m*60); $('wo-t').textContent = fmtClock(Math.ceil(left));
+          const c = Math.ceil(left); if (c <= 3 && c >= 1 && c !== lastBeep){ lastBeep = c; beep(760,.07); }
+          $('wo-r').textContent = `${m+1}/${st.min}`; $('wo-d').textContent = (m+1)*st.reps;
+        }, 200);
+      };
+    }
+    else if (st.k === 'rest'){
+      const nx = nextReal(i+1);
+      body.innerHTML = head(st) + `<div class="timer" id="wo-t">${fmtClock(st.d)}</div><div class="prog"><div id="wo-b" style="width:0;background:var(--info)"></div></div>
+        <div class="card" style="text-align:center"><div class="faint small" style="font-weight:700">ENSUITE</div><b>${esc(label(nx))}</b></div>
+        <div class="btns"><button class="btn" id="wo-plus">+30 s</button><button class="btn primary" id="wo-skip">Passer la récup</button></div>`;
+      if (announce) say(spoken(`Repos, ${fmtSec(st.d)}`));
+      const total = () => dur;
+      countdown(st.d, (el, left) => { $('wo-t').textContent = fmtClock(Math.ceil(left)); $('wo-b').style.width = clamp(el/total(), 0, 1)*100 + '%'; }, () => { beepPalier(); next(); });
+      $('wo-plus').onclick = () => { dur += 30; };
+      $('wo-skip').onclick = next;
+    }
+  }
+  function finish(){
+    stop(); releaseWake(); beepEnd(); say('Séance terminée. Bravo !');
+    const trs = log.filter(l => l.ex.tr && l.reps != null).reduce((a,l) => a + l.reps, 0);
+    const holds = log.filter(l => l.hold != null);
+    const byName = {};
+    holds.forEach(h => (byName[h.ex.name] = byName[h.ex.name] || []).push(h.hold));
+    const others = {};
+    log.filter(l => !l.ex.tr && l.reps != null).forEach(l => others[l.ex.name] = (others[l.ex.name] || 0) + l.reps);
+    const done = ds && S.train.log[ds] && S.train.log[ds].done;
+    $('ov-extra').textContent = '';
+    $('ov-body').innerHTML = `<div style="text-align:center;font-size:52px;margin-top:14px">💪</div><h2 style="text-align:center">Séance terminée</h2>
+      <div class="card">
+        ${trs ? `<div class="row" style="justify-content:space-between;padding:6px 0"><b>Tractions</b><span><b>${trs}</b> au total${lastMax != null ? ` · max ${lastMax}` : ''}</span></div>` : ''}
+        ${Object.entries(byName).map(([n, arr]) => `<div class="row" style="justify-content:space-between;padding:6px 0;border-top:1px solid var(--border)"><b>${esc(n)}</b><span class="small">${arr.map(fmtClock).join(' · ')}</span></div>`).join('')}
+        ${Object.entries(others).map(([n, v]) => `<div class="row" style="justify-content:space-between;padding:6px 0;border-top:1px solid var(--border)"><b>${esc(n)}</b><span>${v} rép.</span></div>`).join('')}
+        ${!log.length ? '<div class="muted">Aucune série enregistrée.</div>' : ''}
+      </div>
+      ${lastMax != null ? `<button class="btn block" id="wo-max" style="margin-bottom:8px">Enregistrer ${lastMax} tractions comme résultat du jour</button>` : ''}
+      ${ds && ds <= todayStr() && !done ? `<button class="btn ok block" id="wo-val" style="height:52px">Valider la séance du ${fmtD(ds)}</button>` : ''}
+      <button class="btn block" id="wo-x" style="margin-top:8px">Fermer</button>`;
+    if ($('wo-max')) $('wo-max').onclick = () => { upsertTest(todayStr(), { tr:lastMax }); save(); toast('Résultat enregistré, le plan s\'ajuste'); $('wo-max').remove(); };
+    if ($('wo-val')) $('wo-val').onclick = () => { S.train.log[ds] = { done:true, at:new Date().toISOString(), feel:3, note:`Séance guidée${trs ? ` : ${trs} tractions` : ''}${lastMax != null ? `, max ${lastMax}` : ''}` }; save(); toast('Séance validée 💪'); closeOv(); };
+    $('wo-x').onclick = closeOv;
+  }
+  // Écran d'accueil : le programme
+  const lines = wo.map(ex => `<li><b>${ex.ico || ''} ${esc(ex.name)}</b> · ${ex.type === 'timer' ? fmtSec(ex.d) : ex.type === 'reps' ? `${ex.sets} × ${ex.reps}, récup ${fmtSec(ex.rest)}` : ex.type === 'hold' ? `${ex.sets} × ${fmtSec(ex.hold)}, récup ${fmtSec(ex.rest)}` : ex.type === 'emom' ? `${ex.min} min × ${ex.reps}` : ex.type === 'list' ? ex.list.join('-') : ex.type === 'max' ? `récup ${fmtSec(ex.rest)} après` : `jusqu'à ${ex.total} au total`}</li>`).join('');
+  $('ov-body').innerHTML = `<div class="card" style="margin-top:8px"><b>Au programme</b><ul style="margin:8px 0 0;padding-left:18px;line-height:1.6;font-size:14.5px">${lines}</ul></div>
+    <p class="muted small">L'appli t'annonce chaque série, chronomètre les repos et la chaise, et passe toute seule à la suite. Garde l'écran allumé.</p>
+    <button class="btn primary block" id="wo-start" style="height:58px;font-size:17px">C'est parti</button>`;
+  $('wo-start').onclick = () => { audio(); next(); };
 }
 
 /* =========================================================

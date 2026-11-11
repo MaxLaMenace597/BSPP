@@ -381,6 +381,7 @@ input[type=date],input[type=time]{min-width:0;-webkit-appearance:none;appearance
     <button class="icon-btn" id="ov-close" aria-label="Fermer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     <h2 id="ov-title"></h2>
     <span id="ov-extra" class="faint small"></span>
+    <button class="icon-btn" id="ov-voice" aria-label="Couper ou activer la voix" hidden style="font-size:20px"></button>
   </div>
   <div class="ov-body" id="ov-body"></div>
 </div>
@@ -508,7 +509,9 @@ $('sheet-x').addEventListener('click', closeSheet);
    Overlay (outils, quiz, fiches)
    ========================================================= */
 let ovCleanup = null;
-function openOv(title, html, cleanup){
+function voiceIcon(){ const b = $('ov-voice'); if (b) b.textContent = S.prefs.voice === false ? '🔇' : '🔊'; }
+function openOv(title, html, cleanup, opts){
+  $('ov-voice').hidden = !(opts && opts.voice); voiceIcon();
   if (ovCleanup) { try{ ovCleanup(); }catch(e){} }
   ovCleanup = cleanup || null;
   $('ov-title').textContent = title; $('ov-extra').textContent = '';
@@ -521,6 +524,7 @@ function closeOv(){
   releaseWake(); render();
 }
 $('ov-close').addEventListener('click', closeOv);
+$('ov-voice').addEventListener('click', () => { S.prefs.voice = S.prefs.voice === false; save(); voiceIcon(); if (S.prefs.voice === false){ try{ speechSynthesis.cancel(); }catch(e){} toast('Voix coupée : il reste les bips'); } else { toast('Voix activée'); say('Voix activée'); } });
 
 let wakeLock = null;
 async function keepAwake(){ try{ if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){} }
@@ -847,14 +851,14 @@ function buildSession(s){
     if (phase === 'fondation'){
       const reps = dl(8 + Math.min(4, w));
       main.push(`2 séries de ${reps} × 30 s vite / 30 s trot`, `En 30 s, couvre ${d30(1.0)} m (≈ ${kmh(1.0)} km/h)`, `3 min de trot entre les 2 séries`);
-      run = { title:`2 × ${reps} × 30/30`, steps:[...RS.warmup(V), ...RS.intervals({ sets:2, reps, on:30, off:30, kmhOn:V*1.0 }), RS.cool()] };
+      run = { title:`2 × ${reps} × 30/30`, steps:[...RS.warmup(V), ...RS.intervals({ sets:2, reps, on:30, off:30, kmhOn:V*1.0 }), ...RS.coolDown()] };
     } else if (phase === 'developpement'){
-      if (w % 2 === 0){ const ser = dl(2 + (progressX(s) > 0.42 ? 1 : 0)); main.push(`${ser} série${ser>1?'s':''} de 10 × 30 s vite / 30 s trot`, `En 30 s, couvre ${d30(1.05)} m (≈ ${kmh(1.05)} km/h)`, `3 min de trot entre les séries`); run = { title:`${ser} × 10 × 30/30`, steps:[...RS.warmup(V), ...RS.intervals({ sets:ser, reps:10, on:30, off:30, kmhOn:V*1.05 }), RS.cool()] }; }
-      else { const reps = dl(12); main.push(`2 séries de ${reps} × 15 s très vite / 15 s trot`, `En 15 s, couvre ${d15(1.12)} m`, `3 min de trot entre les séries`); run = { title:`2 × ${reps} × 15/15`, steps:[...RS.warmup(V), ...RS.intervals({ sets:2, reps, on:15, off:15, kmhOn:V*1.12 }), RS.cool()] }; }
+      if (w % 2 === 0){ const ser = dl(2 + (progressX(s) > 0.42 ? 1 : 0)); main.push(`${ser} série${ser>1?'s':''} de 10 × 30 s vite / 30 s trot`, `En 30 s, couvre ${d30(1.05)} m (≈ ${kmh(1.05)} km/h)`, `3 min de trot entre les séries`); run = { title:`${ser} × 10 × 30/30`, steps:[...RS.warmup(V), ...RS.intervals({ sets:ser, reps:10, on:30, off:30, kmhOn:V*1.05 }), ...RS.coolDown()] }; }
+      else { const reps = dl(12); main.push(`2 séries de ${reps} × 15 s très vite / 15 s trot`, `En 15 s, couvre ${d15(1.12)} m`, `3 min de trot entre les séries`); run = { title:`2 × ${reps} × 15/15`, steps:[...RS.warmup(V), ...RS.intervals({ sets:2, reps, on:15, off:15, kmhOn:V*1.12 }), ...RS.coolDown()] }; }
     } else if (phase === 'specifique'){
       const P1 = Math.min(Math.floor(P)+1, G.ll+1), r = dl(5 + (w % 3));
       main.push(`Navettes de 20 m au bip : ${r} × 1 min au palier ${P1} (${String(P2V(P1)).replace('.',',')} km/h), 1 min de marche entre chaque — Outils › Bip Luc Léger`, `Puis 8 × 30/30 : ${d30(1.1)} m en 30 s`);
-      bip = true; run = { title:'8 × 30/30 (après les navettes)', steps:[...RS.intervals({ reps:8, on:30, off:30, kmhOn:V*1.1 }), RS.cool()] };
+      bip = true; run = { title:'8 × 30/30 (après les navettes)', steps:[...RS.intervals({ reps:8, on:30, off:30, kmhOn:V*1.1 }), ...RS.coolDown()] };
     } else { // affûtage
       main.push(`6 × 30 s vite / 30 s trot : ${d30(1.0)} m en 30 s`, `3 × 1 min de navettes au palier ${Math.floor(G.ll)} (pour garder le rythme des virages)`);
       bip = true; run = { title:'6 × 30/30', steps:[...RS.warmup(V), ...RS.intervals({ reps:6, on:30, off:30, kmhOn:V*1.0 })] };
@@ -871,7 +875,7 @@ function buildSession(s){
   else if (type === 'force'){ // force tractions + Killy
     title = 'Tractions force + chaise'; ico = '💪'; cls = 'str'; dur = '≈ 45 min'; woTitle = 'Tractions + chaise + renfo';
     blocks.push({h:'Échauffement', items:WARM_UP});
-    wo.push(EX.timer('Échauffement', 300, WARM_UP.join(' · '), '🔥', { warm:true }));
+    wo.push(...warmUpWo());
     const main = [];
     if (phase === 'fondation'){
       const ns = dl(5 + Math.min(2, w));
@@ -899,7 +903,7 @@ function buildSession(s){
     blocks.push({h:'Renfo', items:[`Pompes : ${pn} × ${pr}`, `Gainage planche : 3 × ${gp} s`, `Suspension à la barre (grip) : 2 × ${su} s`]});
     wo.push(EX.reps('Pompes', pn, pr, 60, 'Corps gainé, poitrine jusqu\'au sol', '🫸'), EX.hold('Gainage planche', 3, gp, 45, 'Sur les coudes, corps aligné de la tête aux talons', '🧱'), EX.hold('Suspension à la barre', 2, su, 60, 'Bras tendus, épaules engagées', '🤲'));
     blocks.push({h:'Retour au calme', cls:'soft', items:["Étirements dorsaux et pectoraux 5 min", "Quadriceps et fessiers 3 min"]});
-    wo.push(EX.timer('Retour au calme', 480, 'Étirements : dorsaux, pectoraux, quadriceps, fessiers', '🧘', { cool:true }));
+    wo.push(...stretchWo(['dos','pecs','epaules','triceps','quads','fessiers']));
   }
   else if (type === 'endu'){ // endurance / VMA longue
     title = 'Course — VMA longue'; ico = '🏃'; dur = '≈ 50 min';
@@ -909,10 +913,10 @@ function buildSession(s){
       const tot = dl(25 + 2*Math.min(w, 5));
       main.push(`Footing de ${tot} min à allure confortable (${pace(0.7)})`, `Dedans : 6 × 1 min un peu vite (${kmh(0.9)} km/h, ${dmin(0.9,1)} m) / 1 min lent`);
       const easy = Math.max(120, Math.round((tot*60 - 11*60)/2));
-      run = { title:`Footing ${tot} min dont 6 × 1 min`, steps:[...RS.warmup(V), RS.steady(easy, V*0.7), ...RS.intervals({ reps:6, on:60, off:60, kmhOn:V*0.9, kmhOff:V*0.7 }), RS.steady(easy, V*0.7), RS.cool()] };
+      run = { title:`Footing ${tot} min dont 6 × 1 min`, steps:[...RS.warmup(V), RS.steady(easy, V*0.7), ...RS.intervals({ reps:6, on:60, off:60, kmhOn:V*0.9, kmhOff:V*0.7 }), RS.steady(easy, V*0.7), ...RS.coolDown()] };
     } else if (phase === 'developpement'){
-      if (w % 2){ main.push(`${dl(5)} × 3 min à 90 % VMA : ${dmin(0.9,3)} m en 3 min, récup 1 min 30 en trottinant`); run = { title:`${dl(5)} × 3 min`, steps:[...RS.warmup(V), ...RS.intervals({ reps:dl(5), on:180, off:90, kmhOn:V*0.9 }), RS.cool()] }; }
-      else { main.push(`${dl(4)} × 4 min à 85–90 % VMA : ${dmin(0.87,4)} m en 4 min, récup 2 min`); run = { title:`${dl(4)} × 4 min`, steps:[...RS.warmup(V), ...RS.intervals({ reps:dl(4), on:240, off:120, kmhOn:V*0.87 }), RS.cool()] }; }
+      if (w % 2){ main.push(`${dl(5)} × 3 min à 90 % VMA : ${dmin(0.9,3)} m en 3 min, récup 1 min 30 en trottinant`); run = { title:`${dl(5)} × 3 min`, steps:[...RS.warmup(V), ...RS.intervals({ reps:dl(5), on:180, off:90, kmhOn:V*0.9 }), ...RS.coolDown()] }; }
+      else { main.push(`${dl(4)} × 4 min à 85–90 % VMA : ${dmin(0.87,4)} m en 4 min, récup 2 min`); run = { title:`${dl(4)} × 4 min`, steps:[...RS.warmup(V), ...RS.intervals({ reps:dl(4), on:240, off:120, kmhOn:V*0.87 }), ...RS.coolDown()] }; }
     } else if (phase === 'specifique'){
       const Pi = Math.max(3, Math.floor(P)), Pa = Math.max(1, Pi-2);
       main.push(`Luc Léger fractionné au bip : ${dl(3)} × (paliers ${Pa} → ${Pi} enchaînés, ≈ 3 min), récup 2 min 30`, `Puis 2 × 2 min au palier ${Math.min(Pi+1, G.ll)}, récup 2 min`);
@@ -930,7 +934,7 @@ function buildSession(s){
   else if (type === 'volume'){ // volume tractions + jambes
     title = 'Volume tractions + jambes'; ico = '🦵'; cls = 'str'; dur = '≈ 55 min'; woTitle = 'Tractions + chaise + jambes';
     blocks.push({h:'Échauffement', items:WARM_UP});
-    wo.push(EX.timer('Échauffement', 300, WARM_UP.join(' · '), '🔥', { warm:true }));
+    wo.push(...warmUpWo());
     const main = [];
     if (phase === 'fondation'){
       const n = dl(10 + Math.min(w, 4));
@@ -965,7 +969,7 @@ function buildSession(s){
       }
     }
     blocks.push({h:'Retour au calme', cls:'soft', items:["Étirements quadriceps, fessiers, dos, épaules 8 min"]});
-    wo.push(EX.timer('Retour au calme', 480, 'Étirements : quadriceps, fessiers, dos, épaules', '🧘', { cool:true }));
+    wo.push(...stretchWo(['quads','fessiers','ischios','mollets','dos','epaules']));
   }
   else { // footing
     title = 'Footing endurance'; ico = '🌿'; dur = '';
@@ -974,7 +978,7 @@ function buildSession(s){
     blocks.push({h:'Séance', cls:'main', items:[`${min} min de footing à allure conversation (${pace(0.68)}, ≈ ${kmh(0.68)} km/h)`, `Finis par 5 lignes droites de 80 m en accélérant progressivement`]});
     run = { title:`Footing ${min} min`, steps:[RS.steady(min*60, V*0.68)] };
     blocks.push({h:'Mobilité', items:["10 min : hanches, chevilles, épaules, dos", "Suspension passive à la barre 2 × 30 s (décompresse le dos, renforce la prise)"]});
-    wo.push(EX.timer('Mobilité', 600, 'Hanches, chevilles, épaules, dos', '🧘'), EX.hold('Suspension passive à la barre', 2, 30, 45, 'Relâche le dos, garde les épaules engagées', '🤲'));
+    wo.push(...mobilityWo(), EX.hold('Suspension passive à la barre', 2, 30, 45, 'Relâche le dos, garde les épaules engagées', '🤲'));
     woTitle = 'Mobilité guidée';
   }
 
@@ -992,7 +996,7 @@ function buildSession(s){
       { h:'Gainage', items:[`Planche : 3 × ${phase==='fondation'?40:60} s`, `Planche latérale : 2 × 30 s par côté`] },
       { h:'Retour au calme', cls:'soft', items:COOL }
     ].filter(Boolean), run: a.run, bip: a.bip,
-      wo: [...b.wo.filter(x => !x.warm && !x.legs && !x.cool), EX.hold('Gainage planche', 3, phase==='fondation'?40:60, 45, 'Corps aligné de la tête aux talons', '🧱'), EX.hold('Planche latérale (alterne les côtés)', 4, 30, 20, 'Hanches hautes', '📐'), EX.timer('Retour au calme', 300, 'Étirements', '🧘', { cool:true })],
+      wo: [...b.wo.filter(x => !x.warm && !x.legs && !x.cool), EX.hold('Gainage planche', 3, phase==='fondation'?40:60, 45, 'Corps aligné de la tête aux talons', '🧱'), EX.hold('Planche latérale (alterne les côtés)', 4, 30, 20, 'Hanches hautes', '📐'), ...stretchWo(['dos','epaules','triceps','quads','ischios'])],
       woTitle: 'Tractions + Killy + gainage' };
   } else out = make(type);
   if (rpi){ const r = ABS_R[rpi.a.reason] || ABS_R.autre; out.blocks.unshift({ h:`Reprise après ${r.n.toLowerCase()} · jour ${rpi.k}/${rpi.R}`, cls:'soft', items:[`Volume à ${Math.round(rpi.f*100)} % et charges allégées : ça remonte un peu chaque jour.`, ...(rpi.a.reason === 'operation' || rpi.a.reason === 'blessure' ? ["Uniquement avec le feu vert de ton médecin. À la moindre douleur inhabituelle, arrête-toi."] : ["Écoute ton corps : si c'est trop dur, fais moins."])] }); }
@@ -2259,7 +2263,8 @@ const RS = {
   warmup(V){
     const st = [
       { k:'warm', d:600, t:'ÉCHAUFFEMENT', sub:'Footing très lent : tu dois pouvoir parler', kmh: V ? +(V*0.6).toFixed(1) : null, grp:'warm' },
-      { k:'warm', d:180, t:'GAMMES', sub:'Montées de genoux, talons-fesses, pas chassés (2 × 20 m chacun)', grp:'warm' }
+      ...[['MONTÉES DE GENOUX', 'Genoux hauts, petits pas rapides, sur 20 m', 'Montées de genoux'], ['TALONS-FESSES', 'Talons qui touchent les fesses, sur 20 m', 'Talons-fesses'], ['PAS CHASSÉS', 'De côté, face puis dos à la ligne, sur 20 m', 'Pas chassés']]
+        .flatMap(([t, sub, sp]) => [1, 2].flatMap(r => [{ k:'warm', d:15, t, sub:`${sub} (${r}/2)`, say: r === 1 ? sp : 'Encore une fois', grp:'warm' }, { k:'warm', d:20, t:'RETOUR', sub:'Reviens en marchant', say:'', grp:'warm' }]))
     ];
     for (let i=1; i<=3; i++){
       st.push({ k:'acc', d:15, t:'ACCÉLÉRATION', sub:`Accélération progressive ${i}/3 (environ 60 m)`, grp:'warm' });
@@ -2268,6 +2273,10 @@ const RS = {
     return st;
   },
   cool: (d=300) => ({ k:'cool', d, t:'Retour au calme', sub:'Trot ou marche, puis étirements' }),
+  // Retour au calme + étirements guidés après la course
+  coolDown: () => [{ k:'cool', d:300, t:'RETOUR AU CALME', sub:'Trot très lent ou marche', say:'Retour au calme, trot très lent' },
+    ...[['mollets','MOLLETS'], ['quads','QUADRICEPS'], ['ischios','ISCHIOS'], ['fessiers','FESSIERS']].flatMap(([k, t]) => ['gauche','droit'].map(c => ({ k:'cool', d:30, t, sub:`${STRETCH[k][1]} · côté ${c}`, say:`${STRETCH[k][0]}, côté ${c}` }))),
+    { k:'cool', d:30, t:'DOS', sub:STRETCH.dos[1], say:'Dos' }],
   steady: (d, kmh, t='Footing', sub='Allure conversation') => ({ k:'steady', d, t, sub, kmh }),
   intervals({ sets=1, reps, on, off, between=180, kmhOn, kmhOff=null }){
     const st = [];
@@ -2306,8 +2315,8 @@ function runTool(run, ds){
     <div id="rn-reps" class="chips" style="margin-bottom:12px"></div>
     <div class="btns"><button class="btn primary" id="rn-go" style="height:56px;font-size:17px">Démarrer</button><button class="btn" id="rn-skip" style="height:56px">Étape suivante ⏭</button></div>
     <button class="btn ghost block" id="rn-end" style="margin-top:8px">Terminer la séance</button>
-    <div class="row small" style="justify-content:space-between;margin-top:10px"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rn-voice" style="width:auto" ${S.prefs.voice === false ? '' : 'checked'}> Annonces vocales</label><span class="faint" id="rn-gps">Recherche du GPS…</span></div>
-    <p class="faint small" style="margin-top:12px">Laisse l'écran allumé et l'appli ouverte pendant la séance (sur iPhone, le chrono s'arrête si l'écran se verrouille). Strava peut enregistrer en même temps. La vitesse GPS est une indication à quelques mètres près, plus fiable en ligne droite et à découvert.</p>`, cleanup);
+    <div class="row small" style="justify-content:space-between;margin-top:10px"><span class="faint">🔊 en haut à droite pour couper la voix</span><span class="faint" id="rn-gps">Recherche du GPS…</span></div>
+    <p class="faint small" style="margin-top:12px">Laisse l'écran allumé et l'appli ouverte pendant la séance (sur iPhone, le chrono s'arrête si l'écran se verrouille). Strava peut enregistrer en même temps. La vitesse GPS est une indication à quelques mètres près, plus fiable en ligne droite et à découvert.</p>`, cleanup, { voice:true });
   document.addEventListener('visibilitychange', onVis);
   // Aperçu : ce que le chrono va enchaîner
   (() => {
@@ -2318,18 +2327,17 @@ function runTool(run, ds){
       if (last && last.g === g) { last.d += st.d; last.steps.push(st); } else groups.push({ g, d:st.d, steps:[st] });
     }
     const li = groups.map(G => {
-      if (G.g === 'warm') return G.steps.length > 1 ? `<li><b>Échauffement guidé</b> · ${fmtSec(G.d)} <span class="faint">(footing lent, gammes, 3 accélérations)</span></li>` : `<li><b>Échauffement</b> · ${fmtSec(G.d)}</li>`;
+      if (G.g === 'warm') return G.steps.length > 1 ? `<li><b>Échauffement guidé</b> · ${fmtSec(G.d)} <span class="faint">(footing lent, gammes 2 × 20 m, 3 accélérations)</span></li>` : `<li><b>Échauffement</b> · ${fmtSec(G.d)}</li>`;
       if (G.g === 'int'){ const on = G.steps.find(x => x.k === 'on'), off = G.steps.find(x => x.k === 'off'), ps = G.steps.find(x => x.k === 'rest');
         return `<li><b>${esc(run.title)}</b> · ${on.d} s vite (objectif <b>${on.dist} m</b>)${off ? ` / ${off.d} s ${off.t === 'TROT' ? 'trot' : 'récup'}` : ''}${ps ? ` · ${fmtSec(ps.d)} de pause entre les séries` : ''}</li>`; }
       if (G.g === 'steady') return `<li><b>${esc(G.steps[0].t)}</b> · ${fmtSec(G.d)}${G.steps[0].kmh ? ` à ${String(G.steps[0].kmh.toFixed ? G.steps[0].kmh.toFixed(1) : G.steps[0].kmh).replace('.',',')} km/h` : ''}</li>`;
-      if (G.g === 'cool') return `<li><b>Retour au calme</b> · ${fmtSec(G.d)}</li>`;
+      if (G.g === 'cool') return G.steps.length > 1 ? `<li><b>Retour au calme + étirements guidés</b> · ${fmtSec(G.d)}</li>` : `<li><b>Retour au calme</b> · ${fmtSec(G.d)}</li>`;
       return '';
     }).join('');
     $('rn-target').innerHTML = `<div class="small" style="font-weight:700;margin-bottom:4px">Au programme · ${fmtSec(total)}</div><ul style="margin:0;padding-left:18px;font-size:14px;line-height:1.5">${li}</ul>
       <div class="faint small" style="margin-top:6px">Déjà échauffé ? « Étape suivante » passe à l'étape d'après.</div>`;
     $('rn-sub').textContent = steps[0] && (steps[0].grp === 'warm' || steps[0].k === 'warm') ? "Appuie sur Démarrer : on commence par l'échauffement" : 'Appuie sur Démarrer';
   })();
-  $('rn-voice').onchange = e => { S.prefs.voice = e.target.checked; save(); };
 
   // GPS
   if ('geolocation' in navigator){
@@ -2366,8 +2374,8 @@ function runTool(run, ds){
     else if (st.k === 'off'){ beep(520,.3); const r = reps[reps.length-1]; say(r && gpsOk ? `${st.t === 'TROT' ? 'Trot' : 'Récup'}. ${Math.round(r.dist)} mètres` : (st.t === 'TROT' ? 'Trot' : 'Récup')); }
     else if (st.k === 'rest'){ beepEnd(); const r = reps[reps.length-1]; say(`Pause, ${fmtSec(st.d).replace('min','minutes')}.${r && gpsOk ? ` Dernière : ${Math.round(r.dist)} mètres.` : ''}`); }
     else if (st.k === 'acc'){ beep(880,.2); say('Accélère progressivement'); }
-    else if (st.k === 'warm'){ beep(660,.15); say(st.t === 'GAMMES' ? 'Gammes' : st.t === 'MARCHE' ? 'Marche' : st.t === 'PRÉPARE-TOI' ? 'Prépare-toi, ça commence dans une minute' : 'Échauffement, footing très lent'); }
-    else if (st.k === 'cool'){ beepEnd(); say('Retour au calme. Bien joué'); }
+    else if (st.k === 'warm'){ beep(660,.15); const sp = st.say != null ? st.say : st.t === 'MARCHE' ? 'Marche' : st.t === 'PRÉPARE-TOI' ? 'Prépare-toi, ça commence dans une minute' : 'Échauffement, footing très lent'; if (sp) say(sp); }
+    else if (st.k === 'cool'){ beep(660,.15); say(st.say || 'Retour au calme. Bien joué'); }
     else { beep(660,.15); say(st.t); }
   };
   const closeStep = i => {
@@ -2392,7 +2400,7 @@ function runTool(run, ds){
     $('rn-rep').textContent = st.reps ? `Fraction ${st.rep}/${st.reps}${st.sets > 1 ? ` · Série ${st.set}/${st.sets}` : ''}` : st.grp === 'warm' ? `Échauffement · ${wPos}/${wIdx.length}` : st.k === 'cool' ? 'Dernière étape' : '';
     $('rn-bar').style.width = clamp(inStep/st.d,0,1)*100 + '%'; $('rn-bar').style.background = colors[st.k];
     $('rn-tot').style.width = clamp(e/total,0,1)*100 + '%';
-    if (state === 'run' && ['on','off','rest','acc'].includes(st.k) || (state === 'run' && st.t === 'PRÉPARE-TOI')){ const c = Math.ceil(left); if (c <= 3 && c >= 1 && c !== lastCount){ lastCount = c; beep(760,.07); } }
+    if (state === 'run' && (['on','off','rest','acc'].includes(st.k) || st.d <= 60)){ const c = Math.ceil(left); if (c <= 3 && c >= 1 && c !== lastCount){ lastCount = c; beep(760,.07); } }
     const k = kmhNow();
     $('rn-spd').textContent = k == null ? '—' : k.toFixed(1).replace('.',',');
     $('rn-pace').textContent = k == null ? '—' : fmtPace(k);
@@ -2569,11 +2577,49 @@ const EX = {
   max: (name, rest, note='') => ({ type:'max', name, rest, note, ico:'🔥', tr:true }),
   backoff: (name, total, per, rest) => ({ type:'backoff', name, total, per, rest, ico:'💪', tr:true })
 };
+
+// Échauffement muscu détaillé, étape par étape
+function warmUpWo(){ return [
+  EX.timer('Corde à sauter ou footing léger', 300, 'Doucement, juste pour monter en température', '🔥', { warm:true, auto:true }),
+  EX.timer("Cercles de bras vers l'avant", 20, 'Grands cercles, bras tendus', '🔄', { warm:true, auto:true }),
+  EX.timer("Cercles de bras vers l'arrière", 20, 'Grands cercles, bras tendus', '🔄', { warm:true, auto:true }),
+  EX.timer('Rotations de poignets', 20, 'Dans un sens puis dans l\'autre', '🔄', { warm:true, auto:true }),
+  EX.timer('Rotations des épaules', 20, 'Épaules vers l\'arrière, en grands cercles', '🔄', { warm:true, auto:true }),
+  EX.hold('Suspension passive à la barre', 2, 20, 20, 'Bras tendus, laisse-toi pendre, épaules engagées', '🤲', { warm:true, restAfter:20 }),
+  EX.reps('Tractions faciles', 2, 3, 60, 'Juste pour lancer le geste, sans forcer', '💪', { warm:true, tr:true, restAfter:60 })
+]; }
+// Étirements guidés (côté gauche puis côté droit)
+const STRETCH = {
+  dos:     ['Dos', 'Bras tendus devant toi, dos rond, pousse loin devant', false],
+  pecs:    ['Pectoraux', 'Main à plat contre un mur, tourne doucement le buste à l\'opposé', true],
+  epaules: ['Épaules', 'Bras tendu croisé devant la poitrine, tire doucement avec l\'autre main', true],
+  triceps: ['Triceps', 'Main dans le dos derrière la tête, pousse le coude avec l\'autre main', true],
+  quads:   ['Quadriceps', 'Debout, attrape ton pied et ramène le talon vers la fesse', true],
+  fessiers:['Fessiers', 'Assis, croise une jambe sur l\'autre et ramène le genou vers la poitrine', true],
+  ischios: ['Ischios', 'Jambe tendue posée sur un support bas, penche-toi dos droit', true],
+  mollets: ['Mollets', 'Mains contre un mur, jambe arrière tendue, talon au sol', true]
+};
+function stretchWo(keys, d=30){
+  const out = [];
+  keys.forEach(k => { const [n, note, sides] = STRETCH[k];
+    if (sides) out.push(EX.timer(`${n} · côté gauche`, d, note, '🧘', { cool:true, auto:true }), EX.timer(`${n} · côté droit`, d, note, '🧘', { cool:true, auto:true }));
+    else out.push(EX.timer(n, d, note, '🧘', { cool:true, auto:true }));
+  });
+  return out;
+}
+function mobilityWo(){ return [
+  EX.timer('Cercles de hanches', 40, 'Mains sur les hanches, grands cercles dans les deux sens', '🔄', { auto:true }),
+  EX.timer('Rotations de chevilles', 30, 'Pointe au sol, une cheville puis l\'autre', '🔄', { auto:true }),
+  EX.timer('Fentes avec rotation du buste', 60, 'Grande fente, tourne le buste du côté de la jambe avant', '🦵', { auto:true }),
+  EX.timer('Cercles de bras', 30, 'En avant puis en arrière', '🔄', { auto:true }),
+  EX.timer('Chat-vache', 45, 'À quatre pattes : dos rond puis dos creux, lentement', '🐈', { auto:true }),
+  EX.timer("Posture de l'enfant", 45, 'Fesses sur les talons, bras tendus devant, relâche le dos', '🧘', { auto:true })
+]; }
 function woSteps(wo){
   const q = [];
   wo.forEach((ex, xi) => {
     const last = xi === wo.length - 1;
-    const after = last ? 0 : (ex.restAfter != null ? ex.restAfter : Math.min(ex.rest || 60, 90));
+    const after = last ? 0 : (ex.restAfter != null ? ex.restAfter : ex.type === 'timer' ? 0 : Math.min(ex.rest || 60, 90));
     if (ex.type === 'timer') q.push({ k:'timer', ex, d:ex.d });
     else if (ex.type === 'reps' || ex.type === 'hold'){
       for (let i=1; i<=ex.sets; i++){
@@ -2593,7 +2639,7 @@ function workoutTool(wo, ds, title){
   let i = -1, iv = 0, t0 = 0, dur = 0, running = false, lastMax = null, lastBeep = -1, val = 0;
   const log = [];
   const cleanup = () => { clearInterval(iv); releaseWake(); try{ speechSynthesis.cancel(); }catch(e){} };
-  openOv(title || 'Séance guidée', '', cleanup);
+  openOv(title || 'Séance guidée', '', cleanup, { voice:true });
   audio(); keepAwake();
   const nRealSteps = () => q.filter(x => x.k !== 'rest').length;
   const nDone = () => q.slice(0, Math.max(0, i)).filter(x => x.k !== 'rest').length;
@@ -2631,7 +2677,8 @@ function workoutTool(wo, ds, title){
       $('wo-skip').onclick = next;
       $('wo-go').onclick = () => { if (running){ stop(); $('wo-go').textContent = 'Reprendre'; dur = Math.max(0, dur - (performance.now()-t0)/1000); return; }
         const d0 = $('wo-go').textContent === 'Reprendre' ? dur : st.d; $('wo-go').textContent = 'Pause';
-        countdown(d0, (el, left) => { $('wo-t').textContent = fmtClock(Math.ceil(left)); $('wo-b').style.width = clamp(1 - left/st.d, 0, 1)*100 + '%'; }, () => { beepPalier(); next(); }); };
+        countdown(d0, (el, left) => { $('wo-t').textContent = fmtClock(Math.ceil(left)); $('wo-b').style.width = clamp(1 - left/st.d, 0, 1)*100 + '%'; }, () => { beep(880,.15); next(); }); };
+      if (st.ex.auto) $('wo-go').click();
     }
     else if (st.k === 'set'){
       val = st.reps;
@@ -2735,6 +2782,7 @@ function workoutTool(wo, ds, title){
 $('btn-settings').addEventListener('click', () => {
   openSheet(`<h3>Réglages</h3>
     <div class="field"><label>Thème</label><div class="seg" id="st-th" style="margin:0">${[['auto','Auto'],['light','Clair'],['dark','Sombre']].map(([k,n]) => `<button data-v="${k}" class="${S.prefs.theme===k?'on':''}">${n}</button>`).join('')}</div></div>
+    <div class="field"><label>Annonces vocales pendant les séances</label><div class="seg" id="st-voice" style="margin:0"><button data-v="1" class="${S.prefs.voice === false ? '' : 'on'}">Activées</button><button data-v="0" class="${S.prefs.voice === false ? 'on' : ''}">Coupées (bips seulement)</button></div></div>
     <div class="field"><label>Son des bips</label><div class="seg" id="st-loud" style="margin:0"><button data-v="1" class="${S.prefs.loud === false ? '' : 'on'}">Même en silencieux</button><button data-v="0" class="${S.prefs.loud === false ? 'on' : ''}">Avec ma musique</button></div>
       <p class="faint small" style="margin:6px 0 0">« Même en silencieux » : tu entends les bips même si ton iPhone est en mode silencieux, mais ta musique se met en pause. « Avec ma musique » : les bips se mélangent à ta musique, mais sont coupés en mode silencieux.</p></div>
     <div class="field"><label>Sauvegarde</label><div class="btns"><button class="btn" id="st-exp">Exporter mes données</button><button class="btn" id="st-imp">Importer</button></div><input type="file" id="st-file" accept="application/json,.json" hidden></div>
@@ -2742,6 +2790,7 @@ $('btn-settings').addEventListener('click', () => {
     <div class="hr"></div>
     <button class="btn block" id="st-reset" style="color:var(--accent)">Tout effacer et recommencer</button>
     <p class="faint small" style="margin-top:14px">Objectif BSPP · ${QS.length} questions · ${FICHES.length} fiches</p>`, el => {
+      el.querySelector('#st-voice').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; S.prefs.voice = b.dataset.v === '1'; save(); el.querySelectorAll('#st-voice button').forEach(x => x.classList.toggle('on', x === b)); };
       el.querySelector('#st-loud').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; S.prefs.loud = b.dataset.v === '1'; save(); el.querySelectorAll('#st-loud button').forEach(x => x.classList.toggle('on', x === b)); };
       el.querySelector('#st-th').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; S.prefs.theme = b.dataset.v; save(); applyTheme(); el.querySelectorAll('#st-th button').forEach(x => x.classList.toggle('on', x === b)); };
       el.querySelector('#st-exp').onclick = () => {
